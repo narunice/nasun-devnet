@@ -1,2 +1,49 @@
+# SUI fork (submodule로 별도 관리)
 sui/
+
+# 빌드 바이너리 (용량이 커서 제외)
 binaries/
+
+# Rust 빌드 결과물
+target/
+
+# 환경 변수 및 비밀키
+.env
+.env.*
+*.pem
+*.key
+!genesis/*.yaml
+
+# 노드 데이터 (로컬 테스트용)
+*_db/
+*.rocksdb/
+
+# 로그 파일
+*.log
+logs/
+
+# OS 파일
+.DS_Store
+Thumbs.db
+
+# IDE 설정
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 임시 파일
+*.tmp
+*.bak
+*.backup
+
+# Node.js (스크립트용)
+node_modules/
+package-lock.json
+
+# Python (스크립트용)
+__pycache__/
+*.pyc
+.venv/
+venv/
