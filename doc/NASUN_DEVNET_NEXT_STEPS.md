@@ -1,10 +1,10 @@
 # Nasun Devnet 다음 단계 계획서
 
-**Version**: 1.2.0
+**Version**: 1.3.0
 **Created**: 2025-12-13
 **Updated**: 2025-12-14
 **Author**: Claude Code
-**Status**: Phase 7-8 완료, Phase 9 진행 예정
+**Status**: Phase 7-9 완료
 **Prerequisites**: Nasun Devnet 운영 중 (Phase 1-6 완료)
 
 ---
@@ -38,17 +38,17 @@
 │                        다음 단계 로드맵                                   │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│  Phase 7 ✅              Phase 8 ✅               Phase 9              │
+│  Phase 7 ✅              Phase 8 ✅               Phase 9 ✅            │
 │  ─────────────────       ─────────────────        ─────────────────     │
 │  토큰 전송 테스트         Faucet 구축              스마트 컨트랙트        │
-│  (완료)                   (완료)                                        │
-│  • CLI 환경 설정 ✅       • sui-faucet 배포 ✅     • Move 환경 설정      │
-│  • 지갑 생성 ✅           • 서비스 설정 ✅         • 컨트랙트 작성       │
-│  • 토큰 전송 ✅           • API 테스트 ✅          • 배포 및 테스트      │
+│  (완료)                   (완료)                   (완료)                │
+│  • CLI 환경 설정 ✅       • sui-faucet 배포 ✅     • Move 환경 설정 ✅   │
+│  • 지갑 생성 ✅           • 서비스 설정 ✅         • 컨트랙트 작성 ✅    │
+│  • 토큰 전송 ✅           • API 테스트 ✅          • 배포 및 테스트 ✅   │
 │  • 트랜잭션 확인 ✅                                                     │
 │                                                                         │
 │  난이도: ⭐               난이도: ⭐⭐              난이도: ⭐⭐⭐         │
-│  소요 시간: 완료          소요 시간: 완료           예상 시간: 2시간      │
+│  소요 시간: 완료          소요 시간: 완료           소요 시간: 완료       │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -392,7 +392,22 @@ curl -X POST http://3.38.127.23:9000 \
 
 ---
 
-## 4. Phase 9: 스마트 컨트랙트 배포
+## 4. Phase 9: 스마트 컨트랙트 배포 ✅ 완료
+
+### 4.0 배포 결과 요약 (2025-12-14)
+
+| 항목 | 값 |
+|------|-----|
+| **Package ID** | `0x50023dcd6281f8e3836dcd05482e3df40d1c7f59fb4f00e9a3ca8b7fcb4debda` |
+| **Module** | `hello` |
+| **Greeting Object** | `0xce779d345fa0c5d1c86e7a98021311e730b071baea6ae94b31cd3ecba9f3ea14` |
+
+**테스트 결과:**
+| TX | 함수 | 결과 |
+|----|------|------|
+| `DbJU95fbt4SZ72RTHFYk2TfqdSxSPE8oL8ZpnpQFciyc` | publish | ✅ 패키지 배포 성공 |
+| `A5JPTauZtgRdBw6MeAT1PQbE4eQ6DyUvA9pHAZMD6dwW` | create_greeting | ✅ "Hello from Nasun Devnet!" |
+| `9hycYQG63ZYSsSiYzrW2kq2ti8RPKMa3LQMT5MUhyXBn` | update_greeting | ✅ "Welcome to Nasun Blockchain!" |
 
 ### 4.1 목표
 
@@ -748,16 +763,16 @@ curl -X POST http://3.38.127.23:9000 \
   | `http://3.38.127.23:5003/` | GET | 상태 확인 |
   | `http://3.38.127.23:5003/gas` | POST | 토큰 요청 |
 - [x] NEXT_STEPS.md 문서 업데이트 (Phase 8 완료)
-- [ ] 변경사항 Git 커밋 및 푸시
+- [x] 변경사항 Git 커밋 및 푸시 (commit: `1ec7455`)
 
-### Phase 9: 스마트 컨트랙트 배포
-- [ ] Move 프로젝트 생성
-- [ ] hello_nasun 컨트랙트 작성
-- [ ] 컴파일 성공
-- [ ] Nasun Devnet에 배포
-- [ ] create_greeting 함수 호출
-- [ ] update_greeting 함수 호출
-- [ ] 객체 상태 확인
+### Phase 9: 스마트 컨트랙트 배포 ✅ 완료 (2025-12-14)
+- [x] Move 프로젝트 생성 (`contracts/hello_nasun/`)
+- [x] hello_nasun 컨트랙트 작성 (`sources/hello_nasun.move`)
+- [x] 컴파일 성공 (로컬 Sui Framework 의존성 사용)
+- [x] Nasun Devnet에 배포 - Package ID: `0x50023dcd...`
+- [x] create_greeting 함수 호출 - "Hello from Nasun Devnet!"
+- [x] update_greeting 함수 호출 - "Welcome to Nasun Blockchain!"
+- [x] 객체 상태 확인 - Greeting Object ID: `0xce779d34...`
 
 ---
 
@@ -810,3 +825,4 @@ curl -X POST http://3.38.127.23:9000 \
 | 1.0.0 | 2025-12-13 | 초안 작성 | Claude Code |
 | 1.1.0 | 2025-12-13 | Phase 7 완료 반영, Phase 8 상세 체크리스트 추가, CLI alias 설정 | Claude Code |
 | 1.2.0 | 2025-12-14 | Phase 8 Faucet 구축 완료, 엔드포인트 문서화 | Claude Code |
+| 1.3.0 | 2025-12-14 | Phase 9 스마트 컨트랙트 배포 완료, hello_nasun 패키지 배포 | Claude Code |
