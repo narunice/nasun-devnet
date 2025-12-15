@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+이 파일은 Claude Code가 이 저장소에서 작업할 때 필요한 지침을 제공합니다.
 
 ## 언어 설정
 
@@ -8,15 +8,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Nasun Devnet** is a forked SUI blockchain network for development and testing purposes.
+**Nasun Devnet**은 개발 및 테스트 목적의 SUI 블록체인 포크 네트워크입니다.
 
 | Spec | Value |
 |------|-------|
 | Network Name | Nasun Devnet |
-| Chain ID | `nasun-devnet-1` |
-| Native Token | NASUN |
+| Chain ID | `33a8f3c5` |
+| Native Token | NASUN (최소단위: SOE) |
 | Consensus | Narwhal/Bullshark (SUI default) |
 | Validators | 2 nodes (EC2 c6i.xlarge) |
+| RPC Endpoint (HTTPS) | https://rpc.devnet.nasun.io |
+| RPC Endpoint (HTTP) | http://3.38.127.23:9000 |
+| Faucet (HTTPS) | https://faucet.devnet.nasun.io |
+| Faucet (HTTP) | http://3.38.127.23:5003 |
+| Explorer | https://devnet.nasun.io (배포 예정) |
+| Epoch Duration | 60초 |
+
+### 나선 프로젝트 전체 구성
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Nasun Project                                 │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  nasun-website             nasun-devnet           nasun-explorer    │
+│  ─────────────────        ─────────────────      ─────────────────  │
+│  공식 웹사이트              블록체인 노드           블록 탐색기        │
+│  • 리더보드                 • SUI 포크             • TX/Block 조회    │
+│  • NFT 이벤트               • 2노드 Validator      • 주소/객체 조회   │
+│  • OAuth 인증               • Faucet 서비스        • 네트워크 상태    │
+│  • MetaMask 연동            • 스마트 컨트랙트      • 검색 기능        │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ## Repository Structure
 
@@ -90,9 +114,80 @@ curl -X POST http://localhost:9000 \
   -d '{"jsonrpc":"2.0","id":1,"method":"sui_getChainIdentifier","params":[]}'
 ```
 
+## 배포된 스마트 컨트랙트
+
+| 컨트랙트 | Package ID | 설명 |
+|---------|------------|------|
+| hello_nasun | `0x50023dcd6281f8e3836dcd05482e3df40d1c7f59fb4f00e9a3ca8b7fcb4debda` | 테스트용 Greeting 컨트랙트 |
+
+## RPC 테스트 명령어
+
+```bash
+# Chain ID 확인
+curl -X POST http://3.38.127.23:9000 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"sui_getChainIdentifier","params":[]}'
+
+# 최신 체크포인트
+curl -X POST http://3.38.127.23:9000 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"sui_getLatestCheckpointSequenceNumber","params":[]}'
+
+# 총 트랜잭션 수
+curl -X POST http://3.38.127.23:9000 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"sui_getTotalTransactionBlocks","params":[]}'
+
+# Faucet 토큰 요청
+curl -X POST http://3.38.127.23:5003/gas \
+  -H "Content-Type: application/json" \
+  -d '{"FixedAmountRequest":{"recipient":"<YOUR_ADDRESS>"}}'
+```
+
+## CLI 사용법 (nasun alias)
+
+로컬에서 Nasun Devnet CLI를 사용하려면:
+
+```bash
+# ~/.bashrc에 alias가 설정된 경우
+nasun client gas          # 잔액 확인
+nasun client objects      # 소유 객체 확인
+nasun client tx-block <TX_DIGEST>  # 트랜잭션 조회
+
+# 환경 전환
+nasun client switch --env nasun-devnet
+
+# Chain ID 확인
+nasun client chain-identifier
+# 출력: 33a8f3c5
+```
+
+## SUI Wallet 연동
+
+SUI Wallet에서 Nasun Devnet을 커스텀 네트워크로 추가:
+
+```
+Settings → Network → Custom RPC URL
+- Network Name: Nasun Devnet
+- RPC URL: https://rpc.devnet.nasun.io
+```
+
 ## 2-Node Consensus Notes
 
 - Minimum viable for Devnet (f=0 Byzantine fault tolerance)
 - Both nodes must be running for consensus to proceed
 - Single node failure halts the network
 - Upgrade to 4+ nodes for production fault tolerance
+
+## 관련 프로젝트
+
+| 프로젝트 | 경로 | 설명 |
+|---------|------|------|
+| nasun-website | `../nasun-apps/nasun-website` | Nasun 공식 웹사이트 |
+| nasun-explorer | `../nasun-explorer` | Nasun 블록 탐색기 |
+| nasun-sui-contracts | `../nasun-contracts/nasun-sui-contracts` | Nasun 스마트 컨트랙트 |
+
+### 주요 문서 참조
+
+- [NASUN_DEVNET_SETUP_PLAN.md](doc/NASUN_DEVNET_SETUP_PLAN.md) - Devnet 구축 계획서
+- [NASUN_DEVNET_NEXT_STEPS.md](doc/NASUN_DEVNET_NEXT_STEPS.md) - 다음 단계 계획서 (Phase 7-9)
