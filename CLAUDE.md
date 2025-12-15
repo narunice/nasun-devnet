@@ -21,7 +21,7 @@
 | RPC Endpoint (HTTP) | http://3.38.127.23:9000 |
 | Faucet (HTTPS) | https://faucet.devnet.nasun.io |
 | Faucet (HTTP) | http://3.38.127.23:5003 |
-| Explorer | https://devnet.nasun.io (배포 예정) |
+| Explorer | https://explorer.devnet.nasun.io |
 | Epoch Duration | 60초 |
 
 ### 나선 프로젝트 전체 구성
@@ -48,11 +48,44 @@
 nasun-devnet/
 ├── doc/                    # Planning and documentation
 │   └── NASUN_DEVNET_SETUP_PLAN.md  # Master setup guide
-├── sui/                    # SUI fork code (to be cloned)
+├── sui/                    # SUI fork code (별도 GitHub 레포)
 ├── genesis/                # Genesis files
 ├── configs/                # Node configuration files
 └── scripts/                # Automation scripts
 ```
+
+## SUI Fork GitHub 레포지토리
+
+`sui/` 폴더는 별도의 GitHub 레포지토리로 관리됩니다.
+
+| 항목 | 값 |
+|------|-----|
+| GitHub 레포 | https://github.com/narunice/nasun-sui-devnet-fork (Private) |
+| origin | `git@github.com:narunice/nasun-sui-devnet-fork.git` |
+| upstream | `https://github.com/MystenLabs/sui.git` (원본 SUI) |
+| 브랜치 | `devnet` |
+
+### sui 폴더 Git 사용법
+
+```bash
+cd /home/naru/my_apps/nasun-devnet/sui
+
+# 코드 수정 후 푸시
+git add .
+git commit -m "변경사항 설명"
+git push origin devnet
+
+# 원본 SUI 업데이트 받기
+git fetch upstream
+git merge upstream/devnet
+
+# remote 확인
+git remote -v
+# origin    git@github.com:narunice/nasun-sui-devnet-fork.git (fetch/push)
+# upstream  https://github.com/MystenLabs/sui.git (fetch/push)
+```
+
+**참고**: `nasun-devnet` 레포의 `.gitignore`에서 `sui/` 폴더를 무시하므로, 두 레포는 독립적으로 관리됩니다.
 
 ## Claude Code Responsibilities
 
@@ -179,10 +212,30 @@ Settings → Network → Custom RPC URL
 - Single node failure halts the network
 - Upgrade to 4+ nodes for production fault tolerance
 
+## nginx CORS 설정
+
+EC2 서버 (3.38.127.23)의 nginx 설정 파일: `/etc/nginx/sites-available/nasun-devnet`
+
+SUI SDK가 사용하는 커스텀 헤더들을 허용하기 위해 CORS 설정이 필요합니다:
+
+```nginx
+# RPC 엔드포인트 CORS 설정
+proxy_hide_header Access-Control-Allow-Origin;
+proxy_hide_header Access-Control-Allow-Methods;
+proxy_hide_header Access-Control-Allow-Headers;
+
+add_header Access-Control-Allow-Origin * always;
+add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+add_header Access-Control-Allow-Headers "*" always;
+```
+
+**주의**: 백엔드(SUI RPC)도 CORS 헤더를 추가하므로 `proxy_hide_header`로 중복을 방지해야 합니다.
+
 ## 관련 프로젝트
 
-| 프로젝트 | 경로 | 설명 |
-|---------|------|------|
+| 프로젝트 | 경로/URL | 설명 |
+|---------|----------|------|
+| nasun-sui-devnet-fork | https://github.com/narunice/nasun-sui-devnet-fork | SUI 포크 코드 (Private) |
 | nasun-website | `../nasun-apps/nasun-website` | Nasun 공식 웹사이트 |
 | nasun-explorer | `../nasun-explorer` | Nasun 블록 탐색기 |
 | nasun-sui-contracts | `../nasun-contracts/nasun-sui-contracts` | Nasun 스마트 컨트랙트 |
