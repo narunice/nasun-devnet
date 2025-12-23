@@ -205,6 +205,64 @@ Settings → Network → Custom RPC URL
 - RPC URL: https://rpc.devnet.nasun.io
 ```
 
+## EC2 인프라 및 SSH 접속
+
+| 노드 | IP | 역할 | 인스턴스 타입 |
+|------|-----|------|--------------|
+| nasun-node-1 | 3.38.127.23 | Validator + Fullnode (RPC) + Faucet | c6i.xlarge |
+| nasun-node-2 | 3.38.76.85 | Validator | c6i.xlarge |
+
+```bash
+# Node 1 (주 노드) 접속
+ssh -i ~/.ssh/.awskey/nasun-devnet-key.pem ubuntu@3.38.127.23
+
+# Node 2 접속
+ssh -i ~/.ssh/.awskey/nasun-devnet-key.pem ubuntu@3.38.76.85
+```
+
+## systemd 서비스 관리
+
+EC2 서버에서 노드는 systemd 서비스로 관리됩니다.
+
+| 서비스 | 설명 | 포트 |
+|--------|------|------|
+| `nasun-validator` | Validator 노드 | 8080, 8084 |
+| `nasun-fullnode` | Fullnode (RPC 서비스) | 9000 |
+| `nasun-faucet` | Faucet 서비스 | 5003 |
+
+```bash
+# 서비스 상태 확인
+sudo systemctl status nasun-validator nasun-fullnode nasun-faucet
+
+# 서비스 재시작
+sudo systemctl restart nasun-validator nasun-fullnode
+
+# 서비스 로그 확인
+sudo journalctl -u nasun-fullnode -f
+```
+
+**중요**: 노드는 반드시 systemd 서비스로 관리해야 합니다. 수동 실행 시 서비스와 충돌합니다.
+
+## 로그 관리
+
+SUI 노드는 기본적으로 INFO 레벨 로그를 대량 생성합니다 (약 3.4GB/일).
+**RUST_LOG=warn** 환경변수로 로그량을 99% 이상 줄일 수 있습니다.
+
+systemd 서비스 설정 (`/etc/systemd/system/nasun-fullnode.service`):
+
+```ini
+[Service]
+Environment="RUST_LOG=warn"
+ExecStart=/home/ubuntu/sui-node --config-path fullnode.yaml
+Restart=always
+RestartSec=10
+```
+
+logrotate 설정 (`/etc/logrotate.d/rsyslog`):
+- 일간 로테이션
+- 최대 500MB 제한
+- 3개 보관
+
 ## 2-Node Consensus Notes
 
 - Minimum viable for Devnet (f=0 Byzantine fault tolerance)
@@ -244,3 +302,4 @@ add_header Access-Control-Allow-Headers "*" always;
 
 - [NASUN_DEVNET_SETUP_PLAN.md](doc/NASUN_DEVNET_SETUP_PLAN.md) - Devnet 구축 계획서
 - [NASUN_DEVNET_NEXT_STEPS.md](doc/NASUN_DEVNET_NEXT_STEPS.md) - 다음 단계 계획서 (Phase 7-9)
+- [NASUN_DEVNET_OPERATIONS.md](doc/NASUN_DEVNET_OPERATIONS.md) - 운영 가이드 (문제 해결 사례 포함)
