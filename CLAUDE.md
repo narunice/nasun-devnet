@@ -12,22 +12,23 @@
 
 **Nasun Devnet**은 개발 및 테스트 목적의 SUI 블록체인 포크 네트워크입니다.
 
-| Spec                 | Value                            |
-| -------------------- | -------------------------------- |
-| Network Name         | Nasun Devnet                     |
-| Chain ID             | `dabc2f1f` (2025-12-25 재생성)   |
-| Native Token         | NASUN (최소단위: SOE)            |
-| Total Supply         | 10,000,000,000 NASUN (100억)     |
-| Consensus            | Narwhal/Bullshark (SUI default)  |
-| Validators           | 2 nodes (EC2 c6i.xlarge)         |
-| RPC Endpoint (HTTPS) | https://rpc.devnet.nasun.io      |
-| RPC Endpoint (HTTP)  | http://3.38.127.23:9000          |
-| Faucet (HTTPS)       | https://faucet.devnet.nasun.io   |
-| Faucet (HTTP)        | http://3.38.127.23:5003          |
-| Faucet Amount        | 100 NASUN/요청 (20×5개 코인)     |
-| Explorer             | https://explorer.devnet.nasun.io |
-| Epoch Duration       | 60초                             |
-| DeepBook V2          | ✅ 활성화 (Pado DEX 지원)        |
+| Spec                 | Value                             |
+| -------------------- | --------------------------------- |
+| Network Name         | Nasun Devnet                      |
+| Chain ID             | `6681cdfd` (2025-12-25 V3 리셋)   |
+| Native Token         | NASUN (최소단위: SOE)             |
+| Total Supply         | 10,000,000,000 NASUN (100억)      |
+| Consensus            | Narwhal/Bullshark (SUI default)   |
+| Validators           | 2 nodes (EC2 c6i.xlarge)          |
+| RPC Endpoint (HTTPS) | https://rpc.devnet.nasun.io       |
+| RPC Endpoint (HTTP)  | http://3.38.127.23:9000           |
+| Faucet (HTTPS)       | https://faucet.devnet.nasun.io    |
+| Faucet (HTTP)        | http://3.38.127.23:5003           |
+| Faucet Amount        | 100 NASUN/요청 (20×5개 코인)      |
+| Explorer             | https://explorer.devnet.nasun.io  |
+| Epoch Duration       | 60초                              |
+| Fork Source          | Sui mainnet v1.63.0 (2025-12-25)  |
+| DeepBook             | V2 deprecated (별도 복원 필요)    |
 
 ### 나선 프로젝트 전체 구성
 
@@ -314,46 +315,49 @@ add_header Access-Control-Allow-Headers "*" always;
 
 ---
 
-## DeepBook V2 활성화 (Pado 지원)
+## Nasun Devnet V3 리셋 (2025-12-25)
 
 **작업일**: 2025-12-25
-**상태**: ✅ 완료 및 운영 중
-**목적**: Pado DEX 앱을 위한 DeepBook V2 CLOB 기능 활성화
+**상태**: ✅ 네트워크 운영 중
+**Fork 소스**: Sui mainnet v1.63.0 (최신 HEAD)
 
-### 배경
+### 리셋 목적
 
-Sui Mainnet에서 DeepBook V2가 V3로 마이그레이션되면서 V2의 모든 핵심 함수가 `abort 1337`로 비활성화되었습니다. Nasun Devnet에서 Pado DEX를 구축하기 위해 V2를 복원했습니다.
+이전 V2 기반 Devnet에서 발생한 동기화 문제 해결 및 최신 Sui 기능 반영을 위해
+완전히 새로운 Genesis로 네트워크를 리셋했습니다.
 
-### 복원 정보
+### 현재 상태
 
 | 항목 | 값 |
 |------|-----|
-| Deprecation 커밋 | `1bd96df2dc` (Deprecate Deepbook V2 Part 1) |
-| 복원 대상 커밋 | `0910ada2b3` (deprecation 직전, abort 1337 없음) |
-| 복원된 파일 | `clob.move`, `clob_v2.move`, `custodian.move`, `custodian_v2.move`, `math.move` |
-| 복원 완료일 | 2025-12-25 |
+| Chain ID | `6681cdfd` |
+| Fork 소스 | Sui mainnet v1.63.0 |
+| 노드 상태 | 2노드 합의 정상 |
+| RPC | ✅ 정상 (Fullnode) |
+| Faucet | ✅ 정상 (100 NASUN/요청) |
 
-### 복원된 DeepBook V2 핵심 함수
+### DeepBook 상태
 
-| 함수 | 용도 |
-|------|------|
-| `create_account` | AccountCap 생성 |
-| `create_pool` | CLOB 풀 생성 |
-| `deposit_base`, `deposit_quote` | 풀 입금 |
-| `place_limit_order` | 지정가 주문 |
-| `place_market_order` | 시장가 주문 |
-| `cancel_order` | 주문 취소 |
-| `swap_exact_base_for_quote` | Base→Quote 스왑 |
-| `swap_exact_quote_for_base` | Quote→Base 스왑 |
+**중요**: 최신 Sui mainnet에서 DeepBook V2가 deprecated 되어 모든 핵심 함수가
+`abort 1337`로 비활성화되어 있습니다.
 
-### 현재 운영 상태
+Pado DEX를 위한 옵션:
+1. **V2 복원**: pre-deprecation 커밋에서 DeepBook 파일 cherry-pick
+2. **V3 배포**: DeepBook V3를 별도 스마트 컨트랙트로 배포
+
+### 현재 운영 상태 확인
 
 ```bash
 # 네트워크 상태 확인
 curl -X POST http://3.38.127.23:9000 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"sui_getChainIdentifier","params":[]}'
-# 결과: dabc2f1f
+# 결과: 6681cdfd
+
+# 최신 체크포인트
+curl -X POST http://3.38.127.23:9000 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"sui_getLatestCheckpointSequenceNumber","params":[]}'
 
 # Faucet 테스트 (100 NASUN 지급)
 curl -X POST http://3.38.127.23:5003/gas \
@@ -361,30 +365,42 @@ curl -X POST http://3.38.127.23:5003/gas \
   -d '{"FixedAmountRequest":{"recipient":"<YOUR_ADDRESS>"}}'
 ```
 
+### systemd 서비스 (Node 1)
+
+| 서비스 | 설명 | 상태 |
+|--------|------|------|
+| `nasun-validator` | Validator 노드 | ✅ 실행 중 |
+| `nasun-fullnode` | Fullnode (RPC) | ✅ 실행 중 |
+| `nasun-faucet` | Faucet 서비스 | ✅ 실행 중 |
+
 ### 제네시스 재생성 절차 (참고용)
 
 ```bash
 # Node 1 (3.38.127.23)에서 실행
-sudo systemctl stop nasun-validator
-rm -rf ~/authorities_db ~/consensus_db ~/.nasun
+sudo systemctl stop nasun-validator nasun-fullnode nasun-faucet
+rm -rf ~/authorities_db ~/consensus_db ~/full_node_db ~/.nasun
 
 # 올바른 IP로 genesis 생성
-sui genesis --force --epoch-duration-ms 60000 --committee-size 2 \
+./sui genesis --force --epoch-duration-ms 60000 --committee-size 2 \
   --benchmark-ips 3.38.127.23 3.38.76.85 --with-faucet
 
+# Fullnode config 수정 (0.0.0.0 바인딩)
+sed -i 's|network-address: /ip4/127.0.0.1|network-address: /ip4/0.0.0.0|g' ~/.nasun/nasun_config/fullnode.yaml
+sed -i 's|listen-address: "127.0.0.1|listen-address: "0.0.0.0|g' ~/.nasun/nasun_config/fullnode.yaml
+
+# Validator config 수정 (EC2 NAT 대응)
+sed -i 's|network-address: /ip4/3.38.127.23|network-address: /ip4/0.0.0.0|' ~/.nasun/nasun_config/3.38.127.23-*.yaml
+
 # Node 2로 genesis 및 설정 복사
-scp ~/.nasun/nasun_config/genesis.blob ubuntu@3.38.76.85:~/genesis/
+scp ~/.nasun/nasun_config/genesis.blob ubuntu@3.38.76.85:~/.nasun/nasun_config/
+scp ~/.nasun/nasun_config/3.38.76.85-*.yaml ubuntu@3.38.76.85:~/validator.yaml
 
-# Fullnode로 RPC 서비스 실행 (Validator와 별도)
-./sui-node --config-path ~/.nasun/nasun_config/fullnode.yaml
-
-# Faucet 실행 (100 NASUN = 20 NASUN × 5개)
-export SUI_CONFIG_DIR=~/.nasun/nasun_config
-./sui-faucet --host-ip 0.0.0.0 --port 5003 --amount 20000000000 --num-coins 5
+# 서비스 시작
+sudo systemctl start nasun-validator nasun-fullnode nasun-faucet
 ```
 
 **주의사항**:
 - 두 노드가 완벽히 동일한 `genesis.blob`을 가져야 함 (Split Brain 방지)
-- `--benchmark-ips` 옵션으로 올바른 외부 IP 설정 필수
+- EC2에서는 외부 IP로 바인딩 불가 → 0.0.0.0 사용 필수
 - Fullnode와 Validator는 별도 프로세스로 실행
 - Faucet은 `SUI_CONFIG_DIR` 환경변수로 설정 디렉토리 지정
