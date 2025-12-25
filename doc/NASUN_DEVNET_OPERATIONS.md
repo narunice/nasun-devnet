@@ -1,9 +1,10 @@
 # Nasun Devnet 운영 가이드
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Created**: 2025-12-23
+**Updated**: 2025-12-25
 **Author**: Claude Code
-**Status**: 운영 중
+**Status**: 운영 중 (V3 리셋 완료)
 
 ---
 
@@ -26,7 +27,8 @@
 | 항목 | 값 |
 |------|-----|
 | **Network Name** | Nasun Devnet |
-| **Chain ID** | `33a8f3c5` |
+| **Chain ID** | `6681cdfd` (2025-12-25 V3 리셋) |
+| **Fork Source** | Sui mainnet v1.63.0 |
 | **Native Token** | NASUN (최소단위: SOE) |
 | **Consensus** | Narwhal/Bullshark |
 | **Epoch Duration** | 60초 |
@@ -48,7 +50,8 @@
 | 8 | Faucet 구축 | 2025-12-14 |
 | 9 | 스마트 컨트랙트 배포 (hello_nasun) | 2025-12-14 |
 | 10 | HTTPS 설정 (Let's Encrypt) | 2025-12-15 |
-| 11 | 지갑 구현 (계획 중) | - |
+| 11 | 지갑 구현 (Explorer 내장) | 2025-12-18 |
+| **V3 리셋** | Sui mainnet v1.63.0 기반 재구축 | **2025-12-25** |
 
 ---
 
@@ -155,7 +158,7 @@ SUI 노드는 기본적으로 INFO 레벨 로그를 syslog에 기록합니다.
 | INFO (기본) | ~3.4GB/일 |
 | WARN (권장) | ~6MB/일 |
 
-### 4.2 logrotate 설정
+### 4.2 logrotate 설정 (2025-12-25 최적화)
 
 `/etc/logrotate.d/rsyslog`:
 
@@ -167,9 +170,9 @@ SUI 노드는 기본적으로 INFO 레벨 로그를 syslog에 기록합니다.
 /var/log/user.log
 /var/log/cron.log
 {
-    daily
     rotate 3
-    maxsize 500M
+    daily
+    maxsize 100M
     missingok
     notifempty
     compress
@@ -181,7 +184,36 @@ SUI 노드는 기본적으로 INFO 레벨 로그를 syslog에 기록합니다.
 }
 ```
 
-### 4.3 디스크 사용량 확인
+**주요 변경점 (2025-12-25)**:
+- `maxsize`: 500MB → **100MB** (더 자주 로테이션)
+- `rotate`: 3개 보관 유지
+- `daily`: 일간 로테이션
+
+### 4.3 journald 설정 (2025-12-25 추가)
+
+`/etc/systemd/journald.conf`:
+
+```ini
+[Journal]
+SystemMaxUse=500M
+SystemKeepFree=1G
+MaxRetentionSec=7day
+MaxFileSec=1day
+```
+
+| 설정 | 값 | 설명 |
+|------|-----|------|
+| SystemMaxUse | 500MB | 전체 저널 최대 크기 |
+| SystemKeepFree | 1GB | 디스크 최소 여유 공간 |
+| MaxRetentionSec | 7일 | 로그 보관 기간 |
+| MaxFileSec | 1일 | 개별 파일 최대 기간 |
+
+```bash
+# journald 설정 적용
+sudo systemctl restart systemd-journald
+```
+
+### 4.4 디스크 사용량 확인
 
 ```bash
 # 전체 디스크 사용량
@@ -192,6 +224,9 @@ ls -lh /var/log/syslog*
 
 # 디렉토리별 사용량
 du -sh /home/ubuntu/* | sort -hr | head -10
+
+# journald 디스크 사용량
+journalctl --disk-usage
 ```
 
 ---
@@ -254,6 +289,48 @@ du -sh /home/ubuntu/* | sort -hr | head -10
 **교훈**:
 - 노드는 반드시 systemd 서비스로 관리
 - 수동 실행 시 기존 서비스 중지 필요
+
+### 5.3 Node 2 syslog 9.1GB 문제 (2025-12-25)
+
+**증상**:
+- Node 2 디스크 사용량 28%로 급증
+- `/var/log/syslog` 파일이 9.1GB 차지
+
+**원인**:
+- Node 2에 `RUST_LOG=warn` 미적용
+- journald 용량 제한 미설정
+
+**해결**:
+1. 긴급 로그 정리
+   ```bash
+   sudo truncate -s 0 /var/log/syslog
+   ```
+2. logrotate 설정 강화 (maxsize 100M)
+3. journald 제한 설정 추가
+4. 디스크 사용량 9%로 정상화
+
+### 5.4 V3 리셋 중 노드 동기화 문제 (2025-12-25)
+
+**증상**:
+- 체크포인트 265에서 진행 멈춤
+- 두 노드 간 genesis 불일치
+
+**원인**:
+- genesis.blob 동기화 실패
+- 이전 DB 잔여 데이터 충돌
+
+**해결**:
+1. 양 노드 DB 완전 삭제
+   ```bash
+   rm -rf ~/authorities_db ~/consensus_db ~/.nasun
+   ```
+2. genesis.blob 재동기화 (Node 1 → Node 2)
+3. 두 노드 동시 재시작
+4. 새 Chain ID `6681cdfd`로 정상 진행
+
+**교훈**:
+- V3 리셋 시 모든 데이터 완전 삭제 필수
+- genesis.blob MD5 해시 비교로 동일성 확인
 
 ---
 
@@ -359,3 +436,4 @@ SIZE1=$(stat -c%s /var/log/syslog); sleep 30; SIZE2=$(stat -c%s /var/log/syslog)
 | 버전 | 날짜 | 변경 내용 | 작성자 |
 |------|------|----------|--------|
 | 1.0.0 | 2025-12-23 | 초안 작성 - 디스크 풀 문제 해결 사례 포함 | Claude Code |
+| 1.1.0 | 2025-12-25 | V3 리셋 반영 (Chain ID: 6681cdfd), journald 설정 추가, 로그 관리 최적화, 새 문제 해결 사례 추가 | Claude Code |

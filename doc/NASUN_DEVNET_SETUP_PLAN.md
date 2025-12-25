@@ -1,10 +1,10 @@
 # Nasun Devnet (SUI Fork) 구축 계획서
 
-**Version**: 1.1.0
+**Version**: 1.2.0
 **Created**: 2025-12-12
-**Updated**: 2025-12-13
+**Updated**: 2025-12-25
 **Author**: Claude Code
-**Status**: ✅ Deployed & Running
+**Status**: ✅ V3 Running (Sui mainnet v1.63.0 기반)
 
 ---
 
@@ -36,14 +36,17 @@ SUI 블록체인 코드를 포크하여 **Nasun Devnet**이라는 독립적인 �
 | 항목 | 값 |
 |------|-----|
 | **Network Name** | Nasun Devnet |
-| **Chain ID** | `33a8f3c5` |
+| **Chain ID** | `6681cdfd` (2025-12-25 V3 리셋) |
+| **Fork Source** | Sui mainnet v1.63.0 |
 | **Native Token** | NASUN (최소단위: SOE) |
 | **Consensus** | Narwhal/Bullshark (SUI 기본) |
 | **Validator 수** | 2개 (비용 최적화) |
-| **EC2 인스턴스** | t3.large (2 vCPU, 8GB RAM) |
-| **스토리지** | 50GB gp3 |
-| **RPC Endpoint** | `http://3.38.127.23:9000` |
-| **월간 비용** | ~$40 |
+| **EC2 인스턴스** | c6i.xlarge (4 vCPU, 8GB RAM) |
+| **스토리지** | 48GB gp3 |
+| **RPC Endpoint (HTTP)** | `http://3.38.127.23:9000` |
+| **RPC Endpoint (HTTPS)** | `https://rpc.devnet.nasun.io` |
+| **Faucet** | `https://faucet.devnet.nasun.io` |
+| **Explorer** | `https://explorer.devnet.nasun.io` |
 
 ### 1.3 AI 도구 역할 분담
 
@@ -984,22 +987,27 @@ sudo systemctl restart nasun-validator
 
 ---
 
-## 현재 운영 상태 (2025-12-13)
+## 현재 운영 상태 (2025-12-25 V3 리셋)
 
 ### 네트워크 정보
 
 | 항목 | 값 |
 |------|-----|
-| **Chain ID** | `33a8f3c5` |
-| **RPC Endpoint** | `http://3.38.127.23:9000` |
+| **Chain ID** | `6681cdfd` (2025-12-25 V3 리셋) |
+| **Fork Source** | Sui mainnet v1.63.0 |
+| **RPC Endpoint (HTTPS)** | `https://rpc.devnet.nasun.io` |
+| **RPC Endpoint (HTTP)** | `http://3.38.127.23:9000` |
+| **Faucet (HTTPS)** | `https://faucet.devnet.nasun.io` |
+| **Explorer** | `https://explorer.devnet.nasun.io` |
 | **Epoch 길이** | 60초 |
 | **Reference Gas Price** | 1,000 |
+| **DeepBook V2** | ❌ deprecated (abort 1337) |
 
 ### 노드 정보
 
 | 노드 | IP | 역할 | 상태 |
 |------|-----|------|------|
-| nasun-node-1 | 3.38.127.23 | Validator + Fullnode (RPC) | ✅ Running |
+| nasun-node-1 | 3.38.127.23 | Validator + Fullnode (RPC) + Faucet | ✅ Running |
 | nasun-node-2 | 3.38.76.85 | Validator | ✅ Running |
 
 ### RPC 테스트 명령어
@@ -1071,3 +1079,4 @@ sudo journalctl -u nasun-fullnode -f
 |------|------|----------|--------|
 | 1.0.0 | 2025-12-12 | 초안 작성 (2노드 최적화) | Claude Code |
 | 1.1.0 | 2025-12-13 | 배포 완료 상태 반영, 비용 최적화 적용 (t3.large), 현재 운영 상태 섹션 추가 | Claude Code |
+| 1.2.0 | 2025-12-25 | V3 리셋 반영 (Chain ID: 6681cdfd, Fork Source: Sui mainnet v1.63.0), HTTPS 엔드포인트 추가 | Claude Code |
