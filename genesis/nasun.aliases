@@ -1,0 +1,22 @@
+[
+  {
+    "alias": "distracted-plasma",
+    "public_key_base64": "ANYCnAuUzl6HwwRCCtvpt7MrQvLmWpPKChCrVU04Y6go"
+  },
+  {
+    "alias": "elastic-chalcedony",
+    "public_key_base64": "ABzkyGH+B9neB+7UK3EV71aCVEO8PluBJJvGlZc2t7fi"
+  },
+  {
+    "alias": "bold-amethyst",
+    "public_key_base64": "AOCkuCiokGwnbmouFkTZLo3Pc/Ru9NFDFbbohvSmwZAR"
+  },
+  {
+    "alias": "flamboyant-amethyst",
+    "public_key_base64": "AONgpbdJeuhtL7N7IA3FOkoESecMYdG6ue51H5cOWLIZ"
+  },
+  {
+    "alias": "hardcore-coral",
+    "public_key_base64": "AGsQiKKA7kl+9NZf3IYSuRa3FmrnUbfu3AROzbm9oGeK"
+  }
+]
