@@ -29,6 +29,8 @@
 | Epoch Duration       | 60초                              |
 | Fork Source          | Sui mainnet v1.63.0 (2025-12-25)  |
 | DeepBook             | V2 deprecated (별도 복원 필요)    |
+| Auto Recovery        | ✅ CloudWatch 알람 (양 노드)      |
+| SNS Alerts           | nasun-devnet-alerts → naru@nasun.io |
 
 ### 나선 프로젝트 전체 구성
 

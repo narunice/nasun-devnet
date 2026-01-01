@@ -1,8 +1,8 @@
 # Nasun Devnet (SUI Fork) 구축 계획서
 
-**Version**: 1.2.0
+**Version**: 1.3.0
 **Created**: 2025-12-12
-**Updated**: 2025-12-25
+**Updated**: 2026-01-01
 **Author**: Claude Code
 **Status**: ✅ V3 Running (Sui mainnet v1.63.0 기반)
 
@@ -1010,6 +1010,15 @@ sudo systemctl restart nasun-validator
 | nasun-node-1 | 3.38.127.23 | Validator + Fullnode (RPC) + Faucet | ✅ Running |
 | nasun-node-2 | 3.38.76.85 | Validator | ✅ Running |
 
+### 모니터링 설정 (2026-01-01 추가)
+
+| 항목 | 설정 |
+|------|------|
+| **Auto Recovery** | 양 노드 CloudWatch 알람 설정 |
+| **디스크 모니터링** | 80% 초과 시 SNS 알림 (매시간) |
+| **SNS 토픽** | `nasun-devnet-alerts` |
+| **알림 이메일** | naru@nasun.io |
+
 ### RPC 테스트 명령어
 
 ```bash
@@ -1080,3 +1089,4 @@ sudo journalctl -u nasun-fullnode -f
 | 1.0.0 | 2025-12-12 | 초안 작성 (2노드 최적화) | Claude Code |
 | 1.1.0 | 2025-12-13 | 배포 완료 상태 반영, 비용 최적화 적용 (t3.large), 현재 운영 상태 섹션 추가 | Claude Code |
 | 1.2.0 | 2025-12-25 | V3 리셋 반영 (Chain ID: 6681cdfd, Fork Source: Sui mainnet v1.63.0), HTTPS 엔드포인트 추가 | Claude Code |
+| 1.3.0 | 2026-01-01 | 모니터링 설정 추가 (Auto Recovery, 디스크 모니터링, SNS 알림) | Claude Code |

@@ -1,8 +1,8 @@
 # Nasun Devnet 운영 가이드
 
-**Version**: 1.1.0
+**Version**: 1.2.0
 **Created**: 2025-12-23
-**Updated**: 2025-12-25
+**Updated**: 2026-01-01
 **Author**: Claude Code
 **Status**: 운영 중 (V3 리셋 완료)
 
@@ -63,6 +63,14 @@
 |------|-----|------|--------------|
 | nasun-node-1 | 3.38.127.23 | Validator + Fullnode (RPC) + Faucet | c6i.xlarge |
 | nasun-node-2 | 3.38.76.85 | Validator | c6i.xlarge |
+
+**Auto Recovery 설정** (2026-01-01):
+| 알람 이름 | 인스턴스 ID | 상태 |
+|----------|-------------|------|
+| nasun-node-1-auto-recovery | i-040cc444762741157 | ✅ OK |
+| nasun-node-2-auto-recovery | i-049571787762752ba | ✅ OK |
+
+인스턴스 상태 체크 실패 시 자동으로 복구됩니다.
 
 ### 2.2 스토리지
 
@@ -229,6 +237,39 @@ du -sh /home/ubuntu/* | sort -hr | head -10
 journalctl --disk-usage
 ```
 
+### 4.5 디스크 모니터링 스크립트 (2026-01-01 추가)
+
+양 노드에 `/home/ubuntu/disk-monitor.sh` 스크립트 설치:
+
+```bash
+#!/bin/bash
+THRESHOLD=80
+USAGE=$(df / | tail -1 | awk '{print $5}' | sed 's/%//')
+if [ "$USAGE" -ge "$THRESHOLD" ]; then
+    echo "ALERT: Disk usage at ${USAGE}% on $(hostname)" | logger -t disk-monitor
+    aws sns publish --topic-arn arn:aws:sns:ap-northeast-2:150674276464:nasun-devnet-alerts \
+      --message "ALERT: Disk usage at ${USAGE}%" \
+      --subject "Nasun Devnet Disk Alert" 2>/dev/null || true
+fi
+```
+
+**Cron 설정** (매시간 실행):
+```
+0 * * * * /home/ubuntu/disk-monitor.sh
+```
+
+### 4.6 SNS 알림 설정 (2026-01-01 추가)
+
+| 항목 | 값 |
+|------|-----|
+| **토픽 이름** | nasun-devnet-alerts |
+| **토픽 ARN** | `arn:aws:sns:ap-northeast-2:150674276464:nasun-devnet-alerts` |
+| **구독 이메일** | naru@nasun.io |
+
+**알림 트리거**:
+- EC2 Auto Recovery (인스턴스 상태 체크 실패)
+- 디스크 사용량 80% 초과
+
 ---
 
 ## 5. 문제 해결 사례
@@ -331,6 +372,36 @@ journalctl --disk-usage
 **교훈**:
 - V3 리셋 시 모든 데이터 완전 삭제 필수
 - genesis.blob MD5 해시 비교로 동일성 확인
+
+### 5.5 Node 1 Impaired 상태 복구 (2026-01-01)
+
+**증상**:
+- Explorer에서 "Disconnected" 표시
+- SSH/RPC 접속 모두 타임아웃
+- EC2 Instance Status: `impaired`
+
+**원인**:
+- EC2 인스턴스 내부 문제 (정확한 원인 불명)
+- 디스크 사용량 60%로 정상 범위였음
+
+**해결**:
+1. AWS EC2 상태 확인
+   ```bash
+   aws ec2 describe-instance-status --instance-ids i-040cc444762741157
+   # InstanceStatus: impaired, SystemStatus: ok
+   ```
+2. Reboot 시도 → 실패 (stopping 상태 유지)
+3. Force Stop → Start로 복구
+   ```bash
+   aws ec2 stop-instances --instance-ids i-040cc444762741157 --force
+   aws ec2 start-instances --instance-ids i-040cc444762741157
+   ```
+4. 모든 서비스 정상 복구
+
+**후속 조치**:
+- EC2 Auto Recovery 알람 설정 (양 노드)
+- 디스크 모니터링 스크립트 설치 (매시간)
+- SNS 이메일 알림 구성
 
 ---
 
@@ -437,3 +508,4 @@ SIZE1=$(stat -c%s /var/log/syslog); sleep 30; SIZE2=$(stat -c%s /var/log/syslog)
 |------|------|----------|--------|
 | 1.0.0 | 2025-12-23 | 초안 작성 - 디스크 풀 문제 해결 사례 포함 | Claude Code |
 | 1.1.0 | 2025-12-25 | V3 리셋 반영 (Chain ID: 6681cdfd), journald 설정 추가, 로그 관리 최적화, 새 문제 해결 사례 추가 | Claude Code |
+| 1.2.0 | 2026-01-01 | EC2 Auto Recovery 설정, 디스크 모니터링 스크립트, SNS 알림 설정, Node 1 impaired 복구 사례 추가 | Claude Code |

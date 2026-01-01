@@ -1,8 +1,8 @@
 # Nasun Devnet 다음 단계 계획서
 
-**Version**: 1.6.0
+**Version**: 1.7.0
 **Created**: 2025-12-13
-**Updated**: 2025-12-25
+**Updated**: 2026-01-01
 **Author**: Claude Code
 **Status**: V3 리셋 완료, Phase 1 (Pado Spot DEX) 준비 중
 **Prerequisites**: Nasun Devnet V3 운영 중 (Sui mainnet v1.63.0 기반)
@@ -938,6 +938,14 @@ cd /home/naru/my_apps/nasun-explorer
 - [x] Explorer 환경변수 업데이트 (AWS Amplify)
 - [x] 문서 업데이트 (CLAUDE.md, OPERATIONS.md 등)
 
+### 모니터링 설정 ✅ 완료 (2026-01-01)
+- [x] EC2 Auto Recovery 알람 설정 (양 노드)
+- [x] 디스크 모니터링 스크립트 설치 (80% 임계값)
+- [x] Cron job 설정 (매시간 실행)
+- [x] SNS 토픽 생성 (`nasun-devnet-alerts`)
+- [x] 이메일 알림 구독 (naru@nasun.io)
+- [x] Node 1 impaired 상태 복구 (Force Stop → Start)
+
 ---
 
 ## 트러블슈팅
@@ -994,3 +1002,4 @@ curl -X POST http://3.38.127.23:9000 \
 | 1.4.0 | 2025-12-15 | Phase 10 HTTPS 설정 완료, SSL 인증서 발급 | Claude Code |
 | 1.5.0 | 2025-12-15 | Phase 11 지갑 구현 계획 수립, Option B+ 선택 | Claude Code |
 | 1.6.0 | 2025-12-25 | V3 리셋 완료 (Chain ID: 6681cdfd), Phase 11 완료, Pado 로드맵 추가 | Claude Code |
+| 1.7.0 | 2026-01-01 | 모니터링 설정 완료 (Auto Recovery, 디스크 모니터링, SNS 알림) | Claude Code |
