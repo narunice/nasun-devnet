@@ -1,6 +1,6 @@
 # Nasun Devnet 운영 가이드
 
-**Version**: 1.2.0
+**Version**: 1.3.0
 **Created**: 2025-12-23
 **Updated**: 2026-01-01
 **Author**: Claude Code
@@ -269,6 +269,63 @@ fi
 **알림 트리거**:
 - EC2 Auto Recovery (인스턴스 상태 체크 실패)
 - 디스크 사용량 80% 초과
+- 체크포인트 5분 이상 멈춤 (합의 장애)
+
+### 4.7 체크포인트 모니터링 및 자동 복구 (2026-01-01 추가)
+
+양 노드에 `/home/ubuntu/checkpoint-monitor.sh` 스크립트 설치:
+
+**Node 1 버전** (validator + fullnode 재시작, SNS 알림):
+```bash
+#!/bin/bash
+RPC_URL="http://localhost:9000"
+STATE_FILE="/home/ubuntu/.checkpoint_state"
+STALE_THRESHOLD=5  # 5분
+
+CURRENT=$(curl -s -X POST $RPC_URL \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"sui_getLatestCheckpointSequenceNumber","params":[]}' \
+  | jq -r '.result // "error"')
+
+if [ -f "$STATE_FILE" ]; then
+  read PREV_CHECKPOINT STALE_COUNT < "$STATE_FILE"
+else
+  PREV_CHECKPOINT=0; STALE_COUNT=0
+fi
+
+if [ "$CURRENT" = "$PREV_CHECKPOINT" ] && [ "$CURRENT" != "error" ]; then
+  STALE_COUNT=$((STALE_COUNT + 1))
+else
+  STALE_COUNT=0
+fi
+
+echo "$CURRENT $STALE_COUNT" > "$STATE_FILE"
+
+if [ "$STALE_COUNT" -ge "$STALE_THRESHOLD" ]; then
+  aws sns publish --topic-arn arn:aws:sns:ap-northeast-2:150674276464:nasun-devnet-alerts \
+    --message "ALERT: Checkpoint stuck at $CURRENT for ${STALE_COUNT}min. Restarting..." \
+    --subject "Nasun Devnet Consensus Alert" 2>/dev/null || true
+  sudo systemctl restart nasun-validator
+  sleep 5
+  sudo systemctl restart nasun-fullnode
+  echo "$CURRENT 0" > "$STATE_FILE"
+  logger -t checkpoint-monitor "Restarted validator and fullnode due to stale checkpoint"
+fi
+```
+
+**Node 2 버전** (validator만 재시작, RPC는 Node 1 사용):
+- `RPC_URL="http://3.38.127.23:9000"` (Node 1의 RPC)
+- `sudo systemctl restart nasun-validator` (validator만)
+
+**Cron 설정** (매분 실행):
+```
+* * * * * /home/ubuntu/checkpoint-monitor.sh
+```
+
+| 노드 | RPC URL | 재시작 대상 | SNS 알림 |
+|------|---------|------------|----------|
+| Node 1 | localhost:9000 | validator + fullnode | O |
+| Node 2 | 3.38.127.23:9000 | validator만 | X |
 
 ---
 
@@ -403,6 +460,35 @@ fi
 - 디스크 모니터링 스크립트 설치 (매시간)
 - SNS 이메일 알림 구성
 
+### 5.6 합의 멈춤 (Consensus Stuck) 복구 (2026-01-01)
+
+**증상**:
+- Explorer에서 TPS 0tx/s 표시
+- 체크포인트 2269299에서 멈춤 (14시간 이상)
+
+**원인**:
+- Node 1이 impaired 상태에서 Force Stop → Start로 복구됨
+- 복구 후 Node 2와의 합의 상태 불일치
+- 2노드 시스템에서 한 노드 상태 변경 시 합의 교착 발생
+
+**해결**:
+1. 양 노드 Validator 동시 재시작
+   ```bash
+   # Node 1에서
+   sudo systemctl restart nasun-validator
+   # Node 2에서
+   sudo systemctl restart nasun-validator
+   ```
+2. Fullnode 재시작
+   ```bash
+   sudo systemctl restart nasun-fullnode
+   ```
+3. 체크포인트 진행 확인 (2269299 → 2269364)
+
+**후속 조치**:
+- 체크포인트 모니터링 스크립트 설치 (양 노드)
+- 5분간 멈춤 시 자동 복구 및 SNS 알림
+
 ---
 
 ## 6. 모니터링 명령어
@@ -509,3 +595,4 @@ SIZE1=$(stat -c%s /var/log/syslog); sleep 30; SIZE2=$(stat -c%s /var/log/syslog)
 | 1.0.0 | 2025-12-23 | 초안 작성 - 디스크 풀 문제 해결 사례 포함 | Claude Code |
 | 1.1.0 | 2025-12-25 | V3 리셋 반영 (Chain ID: 6681cdfd), journald 설정 추가, 로그 관리 최적화, 새 문제 해결 사례 추가 | Claude Code |
 | 1.2.0 | 2026-01-01 | EC2 Auto Recovery 설정, 디스크 모니터링 스크립트, SNS 알림 설정, Node 1 impaired 복구 사례 추가 | Claude Code |
+| 1.3.0 | 2026-01-01 | 체크포인트 모니터링 및 자동 복구 스크립트 추가, 합의 멈춤 복구 사례 추가 | Claude Code |
