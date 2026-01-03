@@ -15,7 +15,7 @@
 | Spec                 | Value                             |
 | -------------------- | --------------------------------- |
 | Network Name         | Nasun Devnet                      |
-| Chain ID             | `6681cdfd` (2025-12-25 V3 리셋)   |
+| Chain ID             | `4c879694` (2026-01-02 V4 리셋)   |
 | Native Token         | NASUN (최소단위: SOE)             |
 | Total Supply         | 10,000,000,000 NASUN (100억)      |
 | Consensus            | Narwhal/Bullshark (SUI default)   |
@@ -27,8 +27,8 @@
 | Faucet Amount        | 100 NASUN/요청 (20×5개 코인)      |
 | Explorer             | https://explorer.devnet.nasun.io  |
 | Epoch Duration       | 60초                              |
-| Fork Source          | Sui mainnet v1.63.0 (2025-12-25)  |
-| DeepBook             | V2 deprecated (별도 복원 필요)    |
+| Fork Source          | Sui mainnet v1.62.1 (2026-01-02)  |
+| zkLogin              | ✅ 지원 (prover-dev 호환)         |
 | Auto Recovery        | ✅ CloudWatch 알람 (양 노드)      |
 | SNS Alerts           | nasun-devnet-alerts → naru@nasun.io |
 
@@ -406,3 +406,66 @@ sudo systemctl start nasun-validator nasun-fullnode nasun-faucet
 - EC2에서는 외부 IP로 바인딩 불가 → 0.0.0.0 사용 필수
 - Fullnode와 Validator는 별도 프로세스로 실행
 - Faucet은 `SUI_CONFIG_DIR` 환경변수로 설정 디렉토리 지정
+
+---
+
+## Nasun Devnet V4 리셋 (2026-01-02)
+
+**작업일**: 2026-01-02
+**상태**: ✅ 네트워크 운영 중
+**Fork 소스**: Sui mainnet v1.62.1
+
+### 리셋 목적
+
+zkLogin의 "Invalid signature" 에러 해결:
+- prover-dev (Mysten Labs)가 업데이트된 proving key 사용
+- 이전 V3 (v1.63.0 커스텀)는 outdated verifying key 사용
+- 수학적 불일치로 ZK 증명 검증 실패
+
+### V4 변경 사항
+
+| 항목 | V3 (이전) | V4 (현재) |
+|------|-----------|-----------|
+| Chain ID | `6681cdfd` | `4c879694` |
+| Fork Source | v1.63.0 커스텀 | v1.62.1 mainnet |
+| zkLogin | ❌ 불가 | ✅ 정상 |
+| Config 경로 | `~/.nasun/nasun_config/` | `~/.sui/sui_config/` (symlink) |
+
+### 배포된 컨트랙트 (V4)
+
+| 컨트랙트 | Object ID |
+|----------|-----------|
+| pado_tokens Package | `0x7d943e0325ce288eb5faf6c68b35a51227890787762cb2f21072460a34097bfd` |
+| TokenFaucet | `0xcef1706aa2907d92c170f052528e9255389da1a8210e25e361c0e810c34ba9f4` |
+| ClaimRecord | `0x7a0a164d3b115be35e40604dff322de5eb2468fa6deaec411d990066ac7e4326` |
+| NBTC Type | `0x7d943e...::nbtc::NBTC` |
+| NUSDC Type | `0x7d943e...::nusdc::NUSDC` |
+
+### V4 Genesis 생성 절차
+
+```bash
+# 1. 새 바이너리 빌드 (v1.62.1)
+cd /home/naru/my_apps/nasun-devnet/sui
+git checkout nasun-v4-mainnet-1.62.1
+cargo build --release
+
+# 2. 바이너리 배포
+scp target/release/sui-node ubuntu@3.38.127.23:~/
+scp target/release/sui-node ubuntu@3.38.76.85:~/
+scp target/release/sui ubuntu@3.38.127.23:~/
+scp target/release/sui-faucet ubuntu@3.38.127.23:~/
+
+# 3. Genesis 생성 (Node 1에서)
+./sui genesis --force --epoch-duration-ms 60000 --committee-size 2 \
+  --benchmark-ips 3.38.127.23 3.38.76.85 --with-faucet
+
+# 4. Symlink 생성 (backward compatibility)
+mkdir -p ~/.nasun
+ln -s ~/.sui/sui_config ~/.nasun/nasun_config
+
+# 5. Config 수정 후 서비스 시작
+```
+
+### 리셋 가이드 문서
+
+상세한 리셋 절차: `doc/NASUN_DEVNET_V4_RESET.md`
