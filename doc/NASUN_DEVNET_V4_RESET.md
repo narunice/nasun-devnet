@@ -406,5 +406,98 @@ sudo journalctl -u nasun-validator -f
 
 ---
 
-**Document Version**: 1.0
-**Last Updated**: 2026-01-02
+## Phase 7.5: Log Management Setup (REQUIRED!)
+
+> ⚠️ **CRITICAL**: Without these settings, syslog can fill up the disk in days!
+> This was the cause of the 2026-01-04 disk full incident.
+
+### 1. Verify RUST_LOG Settings
+
+All services must have `RUST_LOG=warn`:
+
+```bash
+# On both nodes
+grep RUST_LOG /etc/systemd/system/nasun-*.service
+# Should all show: Environment="RUST_LOG=warn"
+
+# If validator has debug/trace level, fix it:
+sudo sed -i 's/Environment="RUST_LOG=.*"/Environment="RUST_LOG=warn"/' /etc/systemd/system/nasun-validator.service
+sudo systemctl daemon-reload
+```
+
+### 2. Configure logrotate
+
+```bash
+# On both nodes
+sudo tee /etc/logrotate.d/rsyslog << 'EOF'
+/var/log/syslog
+/var/log/mail.log
+/var/log/kern.log
+/var/log/auth.log
+/var/log/user.log
+/var/log/cron.log
+{
+    rotate 3
+    daily
+    maxsize 100M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    sharedscripts
+    postrotate
+        /usr/lib/rsyslog/rsyslog-rotate
+    endscript
+}
+EOF
+```
+
+### 3. Configure journald Limits
+
+```bash
+# On both nodes
+sudo tee /etc/systemd/journald.conf << 'EOF'
+[Journal]
+SystemMaxUse=500M
+SystemKeepFree=1G
+MaxRetentionSec=7day
+MaxFileSec=1day
+EOF
+
+sudo systemctl restart systemd-journald
+```
+
+### 4. Install Disk Monitoring Script
+
+```bash
+# On both nodes
+cat > ~/disk-monitor.sh << 'EOF'
+#!/bin/bash
+THRESHOLD=80
+USAGE=$(df / | tail -1 | awk '{print $5}' | sed 's/%//')
+if [ "$USAGE" -ge "$THRESHOLD" ]; then
+    echo "ALERT: Disk usage at ${USAGE}% on $(hostname)" | logger -t disk-monitor
+    aws sns publish --topic-arn arn:aws:sns:ap-northeast-2:150674276464:nasun-devnet-alerts \
+      --message "ALERT: Disk usage at ${USAGE}%" \
+      --subject "Nasun Devnet Disk Alert" 2>/dev/null || true
+fi
+EOF
+
+chmod +x ~/disk-monitor.sh
+
+# Add to cron (hourly)
+(crontab -l 2>/dev/null | grep -v disk-monitor; echo "0 * * * * /home/ubuntu/disk-monitor.sh") | crontab -
+```
+
+### 5. Verification Checklist
+
+- [ ] `grep RUST_LOG /etc/systemd/system/nasun-*.service` → all show `warn`
+- [ ] `cat /etc/logrotate.d/rsyslog | grep maxsize` → shows `100M`
+- [ ] `cat /etc/systemd/journald.conf | grep SystemMaxUse` → shows `500M`
+- [ ] `ls -la ~/disk-monitor.sh` → file exists
+- [ ] `crontab -l | grep disk-monitor` → shows hourly cron
+
+---
+
+**Document Version**: 1.1
+**Last Updated**: 2026-01-04

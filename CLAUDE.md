@@ -254,10 +254,21 @@ sudo journalctl -u nasun-fullnode -f
 
 ## 로그 관리
 
+> ⚠️ **CRITICAL**: 2026-01-04에 RUST_LOG=debug 설정으로 인해 37GB syslog가 생성되어
+> 디스크 100% 사용으로 노드가 다운되었습니다. **절대로 debug/trace 레벨로 변경하지 마세요!**
+
 SUI 노드는 기본적으로 INFO 레벨 로그를 대량 생성합니다 (약 3.4GB/일).
 **RUST_LOG=warn** 환경변수로 로그량을 99% 이상 줄일 수 있습니다.
 
-systemd 서비스 설정 (`/etc/systemd/system/nasun-fullnode.service`):
+**모든 서비스에 RUST_LOG=warn 필수:**
+
+```bash
+# 확인
+grep RUST_LOG /etc/systemd/system/nasun-*.service
+# 모두 warn이어야 함!
+```
+
+systemd 서비스 설정 (`/etc/systemd/system/nasun-*.service`):
 
 ```ini
 [Service]
@@ -270,8 +281,13 @@ RestartSec=10
 logrotate 설정 (`/etc/logrotate.d/rsyslog`):
 
 - 일간 로테이션
-- 최대 500MB 제한
+- 최대 100MB 제한 (maxsize 100M)
 - 3개 보관
+
+디스크 모니터링:
+
+- `~/disk-monitor.sh` (매시간 실행)
+- 80% 초과 시 SNS 알림
 
 ## 2-Node Consensus Notes
 
