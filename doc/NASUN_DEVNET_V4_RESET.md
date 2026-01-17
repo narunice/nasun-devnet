@@ -499,5 +499,17 @@ chmod +x ~/disk-monitor.sh
 
 ---
 
-**Document Version**: 1.1
-**Last Updated**: 2026-01-04
+---
+
+## See Also
+
+- **[NASUN_DEVNET_POST_RESET_CHECKLIST.md](./NASUN_DEVNET_POST_RESET_CHECKLIST.md)** - 리셋 후 스마트 컨트랙트 배포, 더미 데이터 생성, 프론트엔드 업데이트 체크리스트
+- **[NASUN_DEVNET_NEXT_STEPS.md](./NASUN_DEVNET_NEXT_STEPS.md)** - 현재 진행 상황 및 다음 단계
+
+> **Note**: V5 리셋 (2026-01-17)에서는 epoch duration을 2시간으로 변경하고 DB pruning을 활성화했습니다.
+> Genesis 생성 시 `--epoch-duration-ms 7200000` 옵션을 사용하세요.
+
+---
+
+**Document Version**: 1.2
+**Last Updated**: 2026-01-17
