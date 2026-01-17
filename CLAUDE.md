@@ -2,11 +2,98 @@
 
 이 파일은 Claude Code가 이 저장소에서 작업할 때 필요한 지침을 제공합니다.
 
-## 언어 설정
+## Claude Persona & Operating Principles
 
-**모든 응답과 사고는 한국어로 진행합니다.** 코드 주석, 문서 작성 시에도 한국어를 사용합니다.
+You are operating as a senior-level infrastructure engineer, blockchain protocol specialist,
+and DevOps expert supporting this Nasun Devnet repository.
 
-**커밋 메시지는 영어로 작성합니다.**
+You are expected to think across:
+
+- Network stability and fault tolerance
+- Rust/Sui codebase modifications
+- Infrastructure automation and monitoring
+- Security and adversarial environments
+
+Your default stance is:
+
+- Production-grade quality only
+- Security-first, correctness over convenience
+- Clarity, explicitness, and determinism over cleverness
+- Real failures and incident response, not theoretical examples
+
+---
+
+### Language Rules
+
+- Responses and reasoning: Korean
+- Code comments: English
+- Commit messages: English (Conventional Commits)
+- Date/time format: ISO 8601 or `date.toLocaleString('en-US')`
+
+---
+
+### Engineering Principles
+
+- Read before write: always read files before modifying
+- No over-engineering: implement only what is requested
+- Prefer editing existing files over creating new ones
+- Maintain simplicity: minimal complexity to solve the task
+- No backwards-compatibility hacks: if unused, delete completely
+
+Security expectations:
+
+- Security-first mindset is mandatory
+- Node configuration changes can expose the network
+- Always verify service status after changes
+- Never expose private keys or sensitive credentials
+
+---
+
+### Tooling Rules (Claude Code)
+
+- Use dedicated tools (Read, Edit, Write, Glob, Grep) instead of raw Bash
+- Run independent tool calls in parallel when possible
+- Actively use TodoWrite for planning and progress tracking
+- Use Task tool with subagent_type=Explore when exploring the codebase
+
+---
+
+### Git & GitHub Rules
+
+- Do not create commits unless explicitly requested
+- Never push without explicit instruction
+- Commit messages: Conventional Commits (feat, fix, chore, docs, etc.)
+- Example: `docs: update V5 reset documentation`
+- Include co-author line:
+  `Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>`
+
+---
+
+### Communication Style
+
+- Be concise and CLI-friendly
+- Do not use emojis unless explicitly requested
+- Avoid emotional language or excessive praise
+- Do not estimate time or propose schedules
+- Explain reasoning when it affects network stability or security
+
+---
+
+### Blockchain Infrastructure Context
+
+- Assume deep familiarity with:
+  - Sui / Move (consensus, validators, fullnodes)
+  - Genesis configuration and network parameters
+  - systemd service management
+  - AWS EC2, Security Groups, SNS alerts
+  - Disk management and log rotation
+  - zkLogin prover compatibility
+
+- Infrastructure changes are security-critical by default
+- Both validators must run identical genesis for consensus
+- Single node failure halts the 2-node devnet
+
+---
 
 ## Project Overview
 
@@ -15,19 +102,20 @@
 | Spec                 | Value                             |
 | -------------------- | --------------------------------- |
 | Network Name         | Nasun Devnet                      |
-| Chain ID             | `4c879694` (2026-01-02 V4 리셋)   |
-| Native Token         | NASUN (최소단위: SOE)             |
-| Total Supply         | 10,000,000,000 NASUN (100억)      |
+| Chain ID             | `56c8b101` (2026-01-17 V5 리셋)   |
+| Native Token         | NSN (최소단위: SOE)               |
+| Total Supply         | 10,000,000,000 NSN (100억)        |
 | Consensus            | Narwhal/Bullshark (SUI default)   |
 | Validators           | 2 nodes (EC2 c6i.xlarge)          |
 | RPC Endpoint (HTTPS) | https://rpc.devnet.nasun.io       |
 | RPC Endpoint (HTTP)  | http://3.38.127.23:9000           |
 | Faucet (HTTPS)       | https://faucet.devnet.nasun.io    |
 | Faucet (HTTP)        | http://3.38.127.23:5003           |
-| Faucet Amount        | 100 NASUN/요청 (20×5개 코인)      |
+| Faucet Amount        | 100 NSN/요청 (20×5개 코인)        |
 | Explorer             | https://explorer.devnet.nasun.io  |
-| Epoch Duration       | 60초                              |
-| Fork Source          | Sui mainnet v1.62.1 (2026-01-02)  |
+| Epoch Duration       | 2시간 (7,200,000ms)               |
+| DB Pruning           | 50 epochs (~4일 보관)             |
+| Fork Source          | Sui mainnet v1.63.3 (2026-01-17)  |
 | zkLogin              | ✅ 지원 (prover-dev 호환)         |
 | Auto Recovery        | ✅ CloudWatch 알람 (양 노드)      |
 | SNS Alerts           | nasun-devnet-alerts → naru@nasun.io |
@@ -132,13 +220,14 @@ target/release/sui-tool
 target/release/sui-faucet
 ```
 
-## Genesis Parameters (Devnet Defaults)
+## Genesis Parameters (V5 Devnet)
 
 ```rust
-DEFAULT_EPOCH_DURATION_MS: u64 = 60_000;           // 1 minute
-TOTAL_SUPPLY_NASUN: u64 = 10_000_000_000_000_000_000;  // 10B NASUN
-MIN_VALIDATOR_STAKE: u64 = 1_000_000_000;          // 1 NASUN
+DEFAULT_EPOCH_DURATION_MS: u64 = 7_200_000;        // 2 hours (V5)
+TOTAL_SUPPLY_NSN: u64 = 10_000_000_000_000_000_000;  // 10B NSN
+MIN_VALIDATOR_STAKE: u64 = 1_000_000_000;          // 1 NSN
 DEFAULT_GAS_PRICE: u64 = 1000;
+NUM_EPOCHS_TO_RETAIN: u64 = 50;                    // ~4 days pruning
 ```
 
 ## Local Testing
@@ -156,11 +245,13 @@ curl -X POST http://localhost:9000 \
   -d '{"jsonrpc":"2.0","id":1,"method":"sui_getChainIdentifier","params":[]}'
 ```
 
-## 배포된 스마트 컨트랙트
+## 배포된 스마트 컨트랙트 (V5)
 
 | 컨트랙트    | Package ID                                                           | 설명                       |
 | ----------- | -------------------------------------------------------------------- | -------------------------- |
-| hello_nasun | `0x50023dcd6281f8e3836dcd05482e3df40d1c7f59fb4f00e9a3ca8b7fcb4debda` | 테스트용 Greeting 컨트랙트 |
+| pado_tokens | `0xc84727af62147f35ccf070f521e441f48be9325ab0a1b56225f361f0bc266bb8` | NBTC/NUSDC 테스트 토큰     |
+| deepbook_v3 | `0x379b630c75bada9c10e5f0f0abc76d0462a57ce121430359ecd0c5dc34a01056` | DeepBook V3 DEX            |
+| governance  | `0xa4636c566d7d06bcb3802e248390007a09fb78837349bce3cb71eadd905937cf` | Governance 투표 시스템     |
 
 ## RPC 테스트 명령어
 
@@ -485,3 +576,71 @@ ln -s ~/.sui/sui_config ~/.nasun/nasun_config
 ### 리셋 가이드 문서
 
 상세한 리셋 절차: `doc/NASUN_DEVNET_V4_RESET.md`
+
+---
+
+## Nasun Devnet V5 리셋 (2026-01-17)
+
+**작업일**: 2026-01-17
+**상태**: ✅ 네트워크 운영 중
+**Fork 소스**: Sui mainnet v1.63.3
+
+### 리셋 목적
+
+안정적인 장기 운영을 위한 네트워크 리셋:
+- Epoch duration 2시간으로 변경 (DB 증가 속도 120배 감소)
+- DB Pruning 50 epochs 설정 (~4일 보관)
+- Native Token 브랜딩 변경 (NASUN → NSN)
+
+### V5 변경 사항
+
+| 항목 | V4 (이전) | V5 (현재) |
+|------|-----------|-----------|
+| Chain ID | `4c879694` | `56c8b101` |
+| Fork Source | v1.62.1 | v1.63.3 mainnet |
+| Native Token | NASUN | **NSN** |
+| Epoch Duration | 1분 | **2시간** |
+| DB Pruning | 비활성화 | **50 epochs** |
+| zkLogin | ✅ 정상 | ✅ 정상 |
+
+### 배포된 컨트랙트 (V5)
+
+| 컨트랙트 | Object ID |
+|----------|-----------|
+| **Pado Tokens Package** | `0xc84727af62147f35ccf070f521e441f48be9325ab0a1b56225f361f0bc266bb8` |
+| TokenFaucet | `0xd8722be320d057f7f47aa562f3d54f2e4bc51ea6a53cc05972940640d4f81708` |
+| ClaimRecord | `0x563fc1bb0e65babac3e34b698676c207b1f2b59c2b3e8feb5c230dab1809e689` |
+| NBTC Type | `0xc84727af...::nbtc::NBTC` |
+| NUSDC Type | `0xc84727af...::nusdc::NUSDC` |
+| **DeepBook V3 Package** | `0x379b630c75bada9c10e5f0f0abc76d0462a57ce121430359ecd0c5dc34a01056` |
+| Registry | `0xf2126547e61cccb012fa6f172ec81cc5278954492bc1c474848202f262953042` |
+| DeepbookAdminCap | `0x1510af43a65685d53c66a835d1e53cc6e641fe568c39cce0b6f0d08ca012bf4b` |
+| **Governance Package** | `0xa4636c566d7d06bcb3802e248390007a09fb78837349bce3cb71eadd905937cf` |
+| Dashboard | `0x542142dcf283834783cbf75e4b2e5bd32458a02171232738638b86de386acd0d` |
+| AdminCap | `0xbce95269bbf47f09a2980fd46ee40185c812b6f4088caf9ca70cbe2e5f9f76e2` |
+| ProposalTypeRegistry | `0x4da0ef1eb2cfd06970ceebcc9524d3819b0c5174eca18af1090338b25d4de756` |
+| Dummy Proposal | `0x464be9dc8261414b32681cf4944cae1a6f14ff38094340a5a0967885e5f76f61` |
+
+### V5 Genesis 생성 절차
+
+```bash
+# 1. 새 바이너리 빌드 (v1.63.3)
+cd /home/naru/my_apps/nasun-devnet/sui
+git fetch upstream --tags
+git checkout -b nasun-v5-mainnet-1.63.3 mainnet-v1.63.3
+cargo build --release
+
+# 2. Genesis 생성 (2시간 epoch)
+./sui genesis --force --epoch-duration-ms 7200000 --committee-size 2 \
+  --benchmark-ips 3.38.127.23 3.38.76.85 --with-faucet
+
+# 3. Pruning 설정 추가 (fullnode.yaml, validator.yaml)
+# authority-store-pruning-config:
+#   num-epochs-to-retain: 50
+
+# 4. Config 수정 및 서비스 시작
+```
+
+### 리셋 가이드 문서
+
+상세한 리셋 절차: `doc/NASUN_DEVNET_V5_RESET.md` (참조: `.claude/plans/lively-swimming-shell.md`)
