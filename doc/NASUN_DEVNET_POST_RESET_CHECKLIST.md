@@ -1,7 +1,8 @@
 # Nasun Devnet Post-Reset Checklist
 
-**Version**: 1.0.0
+**Version**: 3.0.0
 **Created**: 2026-01-17
+**Updated**: 2026-01-27
 **Author**: Claude Code
 **Purpose**: Devnet 리셋 후 반드시 수행해야 할 작업 목록
 
@@ -28,9 +29,20 @@
 - Sui mainnet 새 버전으로 업그레이드 (DB 스키마 변경)
 - zkLogin 키 불일치 해결
 - 네트워크 성능 문제 (DB 증가, epoch 조정)
+- 실행 엔진 장애 (Execution halt, SendError)
 - 심각한 버그 발생
 
-### 1.2 리셋 후 복구가 필요한 항목
+### 1.2 현재 노드 아키텍처 (2-Node, V6)
+
+| Node | IP | Role | Services |
+|------|-----|------|----------|
+| Node 1 | 3.38.127.23 | Validator + RPC + Faucet | nasun-validator, nasun-fullnode, nasun-faucet, nginx |
+| Node 2 | 3.38.76.85 | Validator | nasun-validator |
+
+> **참고**: V6부터 2-node 아키텍처 (월 비용 $180 → $120 절감)
+> HTTPS 엔드포인트: `rpc.devnet.nasun.io`, `faucet.devnet.nasun.io` (Node 1 nginx)
+
+### 1.3 리셋 후 복구가 필요한 항목
 
 | 항목 | 설명 | 영향 받는 앱 |
 |------|------|-------------|
@@ -111,12 +123,22 @@ pado = "<NEW_PACKAGE_ID>"
 
 ### 2.4 Step 2: DeepBook V3
 
+> **주의**: DeepBook V3는 매우 큰 패키지입니다. 배포 시 약 **580 NSN** 가스가 필요합니다.
+> 배포 전에 가스 코인을 병합하세요: `sui client merge-coin --primary-coin <COIN_ID> --coin-to-merge <OTHER_COIN_ID>`
+
 ```bash
+# 먼저 token 패키지 배포
+cd /home/naru/my_apps/nasun-monorepo/apps/pado/deepbookv3/packages/token
+sui move build
+sui client publish --gas-budget 100000000
+# TOKEN_PACKAGE_ID 기록
+
+# 그 다음 deepbook 패키지 배포
 cd /home/naru/my_apps/nasun-monorepo/apps/pado/deepbookv3/packages/deepbook
 
-# Move.toml environments 업데이트
+# Move.toml environments 업데이트, token 주소 설정
 sui move build
-sui client publish --gas-budget 200000000
+sui client publish --gas 0x<MERGED_COIN_ID> --gas-budget 800000000000
 ```
 
 **기록할 값:**
@@ -426,9 +448,11 @@ export const NASUN_DEVNET_DELEGATION_REGISTRY_ID = '';  // TODO: 배포 필요�
 
 ### 5.1 네트워크 검증
 
-- [ ] Chain ID 확인
-- [ ] 체크포인트 진행 확인
-- [ ] Faucet 작동 확인 (NASUN 토큰)
+- [ ] 2개 노드 모두 실행 중 (Node 1 validator+fullnode+faucet, Node 2 validator)
+- [ ] Chain ID 확인 (`12bf3808` - V6)
+- [ ] 체크포인트 진행 확인 (Node 1 RPC)
+- [ ] HTTPS 엔드포인트 작동 (rpc.devnet.nasun.io, faucet.devnet.nasun.io)
+- [ ] Faucet 작동 확인 (100 NSN 토큰)
 - [ ] zkLogin 작동 확인
 
 ### 5.2 스마트 컨트랙트 검증
@@ -446,7 +470,13 @@ export const NASUN_DEVNET_DELEGATION_REGISTRY_ID = '';  // TODO: 배포 필요�
 - [ ] Dashboard에 모든 프로포절 등록
 - [ ] Prediction Market 3개 이상 생성
 
-### 5.4 프론트엔드 검증
+### 5.4 Node 1 검증 (RPC/Faucet)
+
+- [ ] nginx 정상 작동 (SSL/HTTPS)
+- [ ] Fullnode가 validator와 동기화 완료
+- [ ] Faucet 정상 작동 (`SUI_CONFIG_DIR` 및 keystore 경로 확인)
+
+### 5.5 프론트엔드 검증
 
 - [ ] Pado 앱 개발 서버 실행 확인
 - [ ] Nasun Website 개발 서버 실행 확인
@@ -485,14 +515,26 @@ curl -s -X POST https://rpc.devnet.nasun.io \
 | "Invalid Package" 에러 | Move.toml 미업데이트 | published-at, pado address 확인 |
 | 마켓/프로포절 조회 실패 | Dashboard 미등록 | register_proposal 호출 확인 |
 | zkLogin 실패 | Chain ID 불일치 | VITE_CHAIN_ID 확인 |
+| Faucet "No managed addresses" | keystore 경로 불일치 | Node 1에서 SUI_CONFIG_DIR 확인 (6.3 참조) |
+| Fullnode 동기화 안됨 | 설정 문제 | fullnode.yaml의 db-path 및 genesis 경로 확인 |
+
+### 6.3 Node 1 Faucet 설정 참고
+
+Faucet은 `SUI_CONFIG_DIR` 환경변수로 설정 디렉토리를 찾습니다.
+`client.yaml` 내부의 keystore 경로가 실제 파일과 일치해야 합니다.
+
+```bash
+# Node 1에서 확인 (SSH: ssh ubuntu@3.38.127.23)
+cat ~/.sui/sui_config/client.yaml | grep keystore
+# keystore 경로가 ~/.sui/sui_config/sui.keystore인지 확인
+```
 
 ### 6.3 관련 문서
 
-- [NASUN_DEVNET_V4_RESET.md](./NASUN_DEVNET_V4_RESET.md) - Genesis 리셋 절차
+- [NASUN_DEVNET_RESET_GUIDE.md](./NASUN_DEVNET_RESET_GUIDE.md) - Genesis 리셋 절차
 - [NASUN_DEVNET_OPERATIONS.md](./NASUN_DEVNET_OPERATIONS.md) - 운영 가이드
-- [NASUN_DEVNET_NEXT_STEPS.md](./NASUN_DEVNET_NEXT_STEPS.md) - 진행 현황
 
 ---
 
-**Document Version**: 1.0.0
-**Last Updated**: 2026-01-17
+**Document Version**: 3.0.0
+**Last Updated**: 2026-01-27

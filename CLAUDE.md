@@ -102,7 +102,7 @@ Security expectations:
 | Spec                 | Value                             |
 | -------------------- | --------------------------------- |
 | Network Name         | Nasun Devnet                      |
-| Chain ID             | `56c8b101` (2026-01-17 V5 리셋)   |
+| Chain ID             | `12bf3808` (2026-01-27 V6 리셋)   |
 | Native Token         | NSN (최소단위: SOE)               |
 | Total Supply         | 10,000,000,000 NSN (100억)        |
 | Consensus            | Narwhal/Bullshark (SUI default)   |
@@ -115,7 +115,7 @@ Security expectations:
 | Explorer             | https://explorer.devnet.nasun.io  |
 | Epoch Duration       | 2시간 (7,200,000ms)               |
 | DB Pruning           | 50 epochs (~4일 보관)             |
-| Fork Source          | Sui mainnet v1.63.3 (2026-01-17)  |
+| Fork Source          | Sui mainnet v1.63.3 (2026-01-27)  |
 | zkLogin              | ✅ 지원 (prover-dev 호환)         |
 | Auto Recovery        | ✅ CloudWatch 알람 (양 노드)      |
 | SNS Alerts           | nasun-devnet-alerts → naru@nasun.io |
@@ -245,13 +245,46 @@ curl -X POST http://localhost:9000 \
   -d '{"jsonrpc":"2.0","id":1,"method":"sui_getChainIdentifier","params":[]}'
 ```
 
-## 배포된 스마트 컨트랙트 (V5)
+## 배포된 스마트 컨트랙트 (V6)
 
-| 컨트랙트    | Package ID                                                           | 설명                       |
-| ----------- | -------------------------------------------------------------------- | -------------------------- |
-| pado_tokens | `0xc84727af62147f35ccf070f521e441f48be9325ab0a1b56225f361f0bc266bb8` | NBTC/NUSDC 테스트 토큰     |
-| deepbook_v3 | `0x379b630c75bada9c10e5f0f0abc76d0462a57ce121430359ecd0c5dc34a01056` | DeepBook V3 DEX            |
-| governance  | `0xa4636c566d7d06bcb3802e248390007a09fb78837349bce3cb71eadd905937cf` | Governance 투표 시스템     |
+**배포 Admin 주소**: `0xe1c4c90bd18d22d5d8fbc9ab7994bdcf1ac717714c0f5375528c229d6dfb3d90`
+
+### Pado Tokens
+
+| 항목 | Object ID |
+|------|-----------|
+| **Package** | `0xd0e01761b2f822df9cd412af99d75d35c477d805b1636981acd15c4a5c0ab772` |
+| TokenFaucet | `0x91ff89b00beb8a88ce9bc3eb370ccca072bf4288c3a23ec052c780386161ae3d` |
+| ClaimRecord | `0xc06fdade91177a678176b83b9f4b6b08e27888291bf7fc87b8c56519d4508498` |
+| NBTC Type | `0xd0e01761...::nbtc::NBTC` |
+| NUSDC Type | `0xd0e01761...::nusdc::NUSDC` |
+
+### DeepBook V3
+
+| 항목 | Object ID |
+|------|-----------|
+| Token Package | `0xce8405a3c3c07325379f3977b3425c92ffd80bdef3ca83205fb88700541987fd` |
+| **DeepBook Package** | `0xaad9b8cfa778a3d4f2e28c6e07073d9627a85a2e7d6dfc33136f527450606253` |
+| Registry | `0x2c386b2a2b8b5756ec316a309208d937b6907d97fbacfaa87fd514894aded384` |
+| DeepbookAdminCap | `0x413ace0602b7f0ec502d53c84aadd41763e1d79b35bfd382ef3ae9c0e7689262` |
+
+> **주의**: DeepBook V3 패키지 배포 시 약 580 NSN 가스 필요 (가스 코인 사전 병합 필수)
+
+### Prediction Market
+
+| 항목 | Object ID |
+|------|-----------|
+| **Package** | `0x8c9423b4e64ee673171e46a21f0d41b9d58f67afecda23caf010bca78be05f0b` |
+| AdminCap | `0x5bca34f1f7ce08aa1a65aac760d3f50dbc920d71d73f1b2dd04545955968dc0b` |
+| GlobalState | `0x80d04dfe103eb168769d0d2a2a14cf06ec4b41aed8b53cff5751d471c742245e` |
+
+### Governance
+
+| 항목 | Object ID |
+|------|-----------|
+| **Package** | `0x02daf1f825b3eaae3b2f0718e7cbab884dc58d1b740c594f505004607b04e516` |
+| Dashboard | `0x3398b1931bc8c418b0e0e1d9c1e04537bfc82c3f85d4dc22e11c97469baee7ae` |
+| AdminCap | `0xd96d14baf4422909e6721c5533d981f0a481b947989c95502d3a45f89f607a04` |
 
 ## RPC 테스트 명령어
 
@@ -644,3 +677,43 @@ cargo build --release
 ### 리셋 가이드 문서
 
 상세한 리셋 절차: `doc/NASUN_DEVNET_V5_RESET.md` (참조: `.claude/plans/lively-swimming-shell.md`)
+
+---
+
+## Nasun Devnet V6 리셋 (2026-01-27)
+
+**작업일**: 2026-01-27
+**상태**: ✅ 네트워크 운영 중
+**Fork 소스**: Sui mainnet v1.63.3
+
+### 리셋 목적
+
+2-node 아키텍처로 전환하여 비용 절감 및 안정성 확보:
+- Node 3 (Fullnode 전용) 제거하고 Node 1에서 Fullnode 운영
+- 월 비용 $180 → $120 절감
+- 이전 네트워크 합의 오류로 인한 완전 리셋
+
+### V6 변경 사항
+
+| 항목 | V5 (이전) | V6 (현재) |
+|------|-----------|-----------|
+| Chain ID | `56c8b101` | `12bf3808` |
+| 아키텍처 | 3-node | **2-node** |
+| Node 1 역할 | Validator | **Validator + Fullnode + Faucet** |
+| Node 3 | Fullnode + Faucet | **제거** |
+| 월 비용 | ~$180 | **~$120** |
+
+### 배포된 컨트랙트 (V6)
+
+| 컨트랙트 | 상태 |
+|----------|------|
+| Pado Tokens | 재배포 필요 |
+| DeepBook V3 | 재배포 필요 |
+| Governance | 재배포 필요 |
+
+### 아키텍처 (2-node)
+
+| 노드 | IP | 역할 |
+|------|-----|------|
+| nasun-node-1 | 3.38.127.23 | Validator + Fullnode + Faucet + nginx |
+| nasun-node-2 | 3.38.76.85 | Validator |
