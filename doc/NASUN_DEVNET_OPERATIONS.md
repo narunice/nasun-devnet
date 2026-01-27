@@ -780,6 +780,25 @@ SIZE1=$(stat -c%s /var/log/syslog); sleep 30; SIZE2=$(stat -c%s /var/log/syslog)
 | 월 비용 (2대) | ~$248 | ~$198 |
 | 절감액 | - | **~$50/월** |
 
+### 8.2 V7 후 Compute Savings Plan 적용
+
+V7 Graviton 전환 완료 후, **Compute Savings Plan** (1년 No Upfront)을 적용하여 추가 비용 절감.
+
+**Savings Plan 선택 이유**:
+- Reserved Instance보다 유연함 (리전, 인스턴스 패밀리 변경 가능)
+- EC2, Fargate, Lambda 모두 적용
+- 인스턴스 수가 아닌 시간당 사용액($) 기준 약정
+
+**예상 최종 비용**:
+| 단계 | 월 비용 | 절감률 |
+|------|---------|--------|
+| 현재 (x86 On-Demand) | ~$248 | - |
+| V7 후 (ARM On-Demand) | ~$198 | 20% |
+| V7 + Savings Plan | **~$160** | **35%** |
+
+> **주의**: 현재는 V7 전환 예정이므로 c6i 인스턴스에 대한 Savings Plan 구매 보류.
+> V7 완료 후 c7g.xlarge 기준으로 Compute Savings Plan 1년 No Upfront 구매 권장.
+
 ---
 
 ## 변경 이력
