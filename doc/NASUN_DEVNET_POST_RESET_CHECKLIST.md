@@ -51,6 +51,8 @@
 | **Trading Pools** | NBTC/NUSDC, NSN/NUSDC | Pado |
 | **Prediction Market** | 바이너리 예측 마켓 | Pado |
 | **Governance** | 투표 대시보드 | Nasun Website |
+| **Baram** | AI Settlement Layer | Baram |
+| **Baram Executor** | TEE Executor Registry | Baram |
 | **Dummy Proposals** | 테스트용 프로포절 | Nasun Website |
 | **Dummy Markets** | 테스트용 예측 마켓 | Pado |
 
@@ -66,6 +68,8 @@
 3. Trading Pools         ←  (Optional) Pool 생성
 4. Prediction Market     ←  Pado Tokens 의존
 5. Governance            ←  독립적
+6. Baram                 ←  Pado Tokens 의존 (NUSDC 결제)
+7. Baram Executor        ←  독립적
 ```
 
 ### 2.2 Move.toml 업데이트
@@ -187,6 +191,71 @@ sui client publish --gas-budget 100000000
 | `VITE_PROPOSAL_TYPE_REGISTRY_ID` | ProposalTypeRegistry Shared Object |
 | `NASUN_DEVNET_ADMIN_CAP` | AdminCap Object |
 | `NASUN_DEVNET_UPGRADE_CAP` | UpgradeCap Object |
+
+### 2.7 Step 5: Baram (AI Settlement Layer)
+
+> **Note**: Baram 패키지는 pado_tokens를 의존성으로 사용합니다.
+> `--with-unpublished-dependencies` 플래그 사용 시 pado_tokens 모듈도 함께 배포됩니다.
+
+```bash
+cd /home/naru/my_apps/nasun-monorepo/apps/baram/contracts
+
+# Move.toml 업데이트
+# - [environments] 섹션에 새 chain ID 추가
+# - [addresses]에서 pado 주소 제거 (의존성에서 가져옴)
+
+# 이전 Pub 파일 삭제
+rm -f Pub.devnet.toml
+
+# 빌드 및 배포
+sui client test-publish --build-env devnet --with-unpublished-dependencies --gas-budget 100000000
+```
+
+**기록할 값:**
+| 변수명 | 설명 |
+|--------|------|
+| `VITE_BARAM_PACKAGE_ID` | Package ID |
+| `VITE_BARAM_REGISTRY_ID` | BaramRegistry Shared Object |
+| `VITE_BARAM_UPGRADE_CAP` | UpgradeCap Object |
+| `VITE_NUSDC_TYPE` | `<PKG>::nusdc::NUSDC` |
+
+### 2.8 Step 6: Baram Executor Registry
+
+```bash
+cd /home/naru/my_apps/nasun-monorepo/apps/baram/contracts-executor
+
+# Move.toml [environments] 섹션 업데이트
+rm -f Pub.devnet.toml
+
+# 빌드 및 배포
+sui client test-publish --build-env devnet --gas-budget 100000000
+```
+
+**기록할 값:**
+| 변수명 | 설명 |
+|--------|------|
+| `VITE_EXECUTOR_PACKAGE_ID` | Package ID |
+| `VITE_EXECUTOR_REGISTRY_ID` | ExecutorRegistry Shared Object |
+| `VITE_EXECUTOR_ADMIN_CAP` | AdminCap Object |
+
+### 2.9 Step 7: TEE Executor 등록 (Optional)
+
+EC2 Nitro Enclave 인스턴스가 필요합니다. Spot 인스턴스로 비용 절감 가능.
+
+```bash
+# Executor 등록 (AdminCap 필요)
+sui client call \
+  --package <EXECUTOR_PACKAGE_ID> \
+  --module executor \
+  --function register_executor \
+  --args \
+    <ADMIN_CAP> \
+    <EXECUTOR_REGISTRY> \
+    "tee-llama-3.2-3b" \
+    "<RSA_PUBLIC_KEY_BASE64>" \
+    "<EXECUTOR_WALLET_ADDRESS>" \
+  --gas-budget 10000000
+```
 
 ---
 
@@ -345,6 +414,15 @@ curl -s -X POST https://rpc.devnet.nasun.io \
 | `contracts/Move.toml` | published-at, pado address |
 | `contracts-prediction/Move.toml` | pado address, environments |
 
+#### Baram 앱 (apps/baram)
+
+| 파일 | 업데이트 내용 |
+|------|-------------|
+| `.env` | 모든 VITE_* 환경변수 |
+| `frontend/.env` | 모든 VITE_* 환경변수 |
+| `contracts/Move.toml` | environments, addresses |
+| `contracts-executor/Move.toml` | environments |
+
 #### Nasun Website (apps/nasun-website)
 
 | 파일 | 업데이트 내용 |
@@ -462,6 +540,9 @@ export const NASUN_DEVNET_DELEGATION_REGISTRY_ID = '';  // TODO: 배포 필요�
 - [ ] DeepBook V3 배포 완료
 - [ ] Prediction Market 배포 완료
 - [ ] Governance 배포 완료
+- [ ] Baram 배포 완료 (BaramRegistry)
+- [ ] Baram Executor 배포 완료 (ExecutorRegistry)
+- [ ] TEE Executor 등록 완료 (Optional - EC2 enclave 필요)
 
 ### 5.3 더미 데이터 검증
 
@@ -480,8 +561,10 @@ export const NASUN_DEVNET_DELEGATION_REGISTRY_ID = '';  // TODO: 배포 필요�
 
 - [ ] Pado 앱 개발 서버 실행 확인
 - [ ] Nasun Website 개발 서버 실행 확인
+- [ ] Baram 앱 개발 서버 실행 확인
 - [ ] Prediction Market 목록 표시 확인
 - [ ] Governance 프로포절 목록 표시 확인
+- [ ] Baram Executor 목록 표시 확인 (TEE 등록 후)
 - [ ] zkLogin 로그인 작동 확인
 
 ---
