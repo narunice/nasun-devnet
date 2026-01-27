@@ -290,6 +290,8 @@ curl -X POST https://rpc.devnet.nasun.io \
 3. **Trading Pools** - NBTC/NUSDC, NSN/NUSDC
 4. **Prediction Market** - Binary prediction contracts
 5. **Governance** - Voting contracts
+6. **Baram** - AI Settlement Layer (includes pado_tokens)
+7. **Baram Executor** - TEE Executor Registry
 
 ### Step 1: Deploy Pado Tokens + Faucet
 
@@ -343,17 +345,77 @@ sui client publish --gas-budget 100000000
 # - AdminCap -> NASUN_DEVNET_ADMIN_CAP
 ```
 
+### Step 5: Deploy Baram (AI Settlement Layer)
+
+> **Note**: Baram uses pado_tokens as dependency. Use `--with-unpublished-dependencies` if pado_tokens
+> was not separately published, or ensure pado_tokens has proper Pub.devnet.toml.
+
+```bash
+cd /home/naru/my_apps/nasun-monorepo/apps/baram/contracts
+
+# Update Move.toml [environments] section with new chain ID
+# Remove pado address from [addresses] if using dependency
+
+# Build and publish
+sui client test-publish --build-env devnet --with-unpublished-dependencies --gas-budget 100000000
+
+# Record:
+# - Package ID -> VITE_BARAM_PACKAGE_ID
+# - BaramRegistry (shared) -> VITE_BARAM_REGISTRY_ID
+# - UpgradeCap -> VITE_BARAM_UPGRADE_CAP
+# - NUSDC Type -> VITE_NUSDC_TYPE (e.g., <PKG>::nusdc::NUSDC)
+```
+
+### Step 6: Deploy Baram Executor Registry
+
+```bash
+cd /home/naru/my_apps/nasun-monorepo/apps/baram/contracts-executor
+
+# Update Move.toml [environments] section with new chain ID
+
+# Build and publish
+sui client test-publish --build-env devnet --gas-budget 100000000
+
+# Record:
+# - Package ID -> VITE_EXECUTOR_PACKAGE_ID
+# - ExecutorRegistry (shared) -> VITE_EXECUTOR_REGISTRY_ID
+# - AdminCap -> VITE_EXECUTOR_ADMIN_CAP
+```
+
+### Step 7: Register TEE Executor (Optional - requires EC2 enclave)
+
+After deploying executor-nitro on EC2 Nitro Enclave, register the executor:
+
+```bash
+# Get RSA public key from enclave attestation
+# Then register executor using AdminCap
+
+sui client call \
+  --package <EXECUTOR_PACKAGE_ID> \
+  --module executor \
+  --function register_executor \
+  --args \
+    <ADMIN_CAP> \
+    <EXECUTOR_REGISTRY> \
+    "tee-llama-3.2-3b" \
+    "<RSA_PUBLIC_KEY_BASE64>" \
+    "<EXECUTOR_WALLET_ADDRESS>" \
+  --gas-budget 10000000
+```
+
 ---
 
 ## Verification Checklist
 
-- [ ] All 3 nodes running (Node 1/2 validators, Node 3 fullnode+faucet)
+- [ ] All 2 nodes running (Node 1 validator+fullnode+faucet, Node 2 validator)
 - [ ] Network running (Chain ID matches expected)
 - [ ] Checkpoints progressing
-- [ ] Faucet working (100 NSN per request, via Node 3)
+- [ ] Faucet working (100 NSN per request, via Node 1)
 - [ ] HTTPS endpoints working (rpc.devnet.nasun.io, faucet.devnet.nasun.io)
 - [ ] zkLogin flow working (Google OAuth -> ZK Proof -> Transaction)
 - [ ] All contracts redeployed
+- [ ] Baram contracts deployed (baram + baram_executor)
+- [ ] TEE Executor registered (if EC2 enclave available)
 - [ ] Frontend .env files updated
 - [ ] CLAUDE.md documentation updated
 - [ ] Monitoring scripts working (disk-monitor.sh, checkpoint-monitor.sh)

@@ -1,10 +1,10 @@
 # Nasun Devnet 운영 가이드
 
-**Version**: 1.3.0
+**Version**: 4.0.0
 **Created**: 2025-12-23
-**Updated**: 2026-01-01
+**Updated**: 2026-01-27
 **Author**: Claude Code
-**Status**: 운영 중 (V3 리셋 완료)
+**Status**: 운영 중 (V6, 2-Node)
 
 ---
 
@@ -27,11 +27,12 @@
 | 항목 | 값 |
 |------|-----|
 | **Network Name** | Nasun Devnet |
-| **Chain ID** | `6681cdfd` (2025-12-25 V3 리셋) |
-| **Fork Source** | Sui mainnet v1.63.0 |
-| **Native Token** | NASUN (최소단위: SOE) |
+| **Chain ID** | `12bf3808` (2026-01-27 V6 리셋) |
+| **Fork Source** | Sui mainnet v1.63.3 |
+| **Native Token** | NSN (최소단위: SOE) |
 | **Consensus** | Narwhal/Bullshark |
-| **Epoch Duration** | 60초 |
+| **Epoch Duration** | 2시간 (7,200,000ms) |
+| **DB Pruning** | 3 epoch DBs 유지 |
 
 ### 1.2 엔드포인트
 
@@ -40,6 +41,8 @@
 | RPC | https://rpc.devnet.nasun.io | http://3.38.127.23:9000 |
 | Faucet | https://faucet.devnet.nasun.io | http://3.38.127.23:5003 |
 | Explorer | https://explorer.devnet.nasun.io | - |
+
+> **참고**: V6부터 2-node 아키텍처로 변경. RPC/Faucet은 Node 1 (3.38.127.23)에서 서비스됩니다.
 
 ### 1.3 개발 히스토리
 
@@ -51,18 +54,28 @@
 | 9 | 스마트 컨트랙트 배포 (hello_nasun) | 2025-12-14 |
 | 10 | HTTPS 설정 (Let's Encrypt) | 2025-12-15 |
 | 11 | 지갑 구현 (Explorer 내장) | 2025-12-18 |
-| **V3 리셋** | Sui mainnet v1.63.0 기반 재구축 | **2025-12-25** |
+| **V3 리셋** | Sui mainnet v1.63.0 기반 재구축 | 2025-12-25 |
+| **V4 리셋** | zkLogin 호환 (v1.62.1 mainnet) | 2026-01-02 |
+| **V5 리셋** | 2시간 epoch, NSN 토큰, DB pruning | 2026-01-17 |
+| **3-Node 전환** | Fullnode/Faucet 전용 Node 3 추가, Node 1 Validator 전용화 | 2026-01-23 |
+| **V5 복구** | Execution engine halt → authorities_db 초기화 복구 | 2026-01-23 |
+| **V6 리셋** | 2-Node 아키텍처로 전환, 전체 Genesis 리셋 | **2026-01-27** |
 
 ---
 
 ## 2. 인프라 현황
 
-### 2.1 EC2 인스턴스
+### 2.1 EC2 인스턴스 (2-Node 아키텍처, V6)
 
-| 노드 | IP | 역할 | 인스턴스 타입 |
-|------|-----|------|--------------|
-| nasun-node-1 | 3.38.127.23 | Validator + Fullnode (RPC) + Faucet | c6i.xlarge |
-| nasun-node-2 | 3.38.76.85 | Validator | c6i.xlarge |
+| 노드 | IP | 역할 | 인스턴스 타입 | Instance ID | 상태 |
+|------|-----|------|--------------|-------------|------|
+| nasun-node-1 | 3.38.127.23 | **Validator + Fullnode + Faucet + nginx** | c6i.xlarge | i-040cc444762741157 | ✅ 운영 중 |
+| nasun-node-2 | 3.38.76.85 | **Validator Only** | c6i.xlarge | i-049571787762752ba | ✅ 운영 중 |
+| nasun-node-3 | 52.78.117.96 | (중지됨) | t3.large | i-0385f4fe2c8b7bc81 | ⏹️ 중지 |
+
+> **아키텍처 변경 (2026-01-27 V6)**: 3-Node → 2-Node로 전환하여 비용 절감 (~$180/월 → ~$120/월).
+> Node 3을 중지하고 Node 1에서 Validator + Fullnode + Faucet + nginx를 모두 운영.
+> 이전 3-Node 아키텍처에서 Node 3 (t3.large, 8GB RAM)가 메모리 부족으로 반복 크래시되던 문제 해결.
 
 **Auto Recovery 설정** (2026-01-01):
 | 알람 이름 | 인스턴스 ID | 상태 |
@@ -74,19 +87,47 @@
 
 ### 2.2 스토리지
 
-- **EBS**: 48GB gp3 (각 노드)
-- **사용 현황**: 약 24GB 사용 (51%)
-- **주요 디렉토리**:
-  - `/home/ubuntu/full_node_db`: ~13GB
-  - `/home/ubuntu/authorities_db`: ~9GB
+| 노드 | EBS | 주요 디렉토리 | 현재 사용량 (2026-01-27) |
+|------|-----|--------------|-------------------------|
+| Node 1 | 48GB gp3 | `~/.sui/sui_config/authorities_db/`, `~/full_node_db/` | 16% (7.3GB) |
+| Node 2 | 48GB gp3 | `~/.sui/sui_config/authorities_db/` | 13% (5.9GB) |
 
-### 2.3 SSH 접속
+**DB Pruning 설정** (현재 상태):
+```yaml
+authority-store-pruning-config:
+  num-latest-epoch-dbs-to-retain: 3    # 3개 epoch DB 유지
+  epoch-db-pruning-period-secs: 3600   # 1시간마다 pruning
+  num-epochs-to-retain: 0              # 추가 epoch 보관 안함
+```
+
+- **Config 경로**: `~/.sui/sui_config/`
+
+### 2.3 스왑 메모리
+
+메모리 부족으로 인한 노드 크래시 방지를 위해 모든 노드에 2GB 스왑 설정:
+
+| 노드 | 스왑 파일 | 크기 |
+|------|----------|------|
+| Node 1 | /swapfile | 2GB |
+| Node 2 | /swapfile | 2GB |
+| Node 3 | /swapfile | 2GB |
 
 ```bash
-# Node 1 (주 노드)
+# 스왑 상태 확인
+swapon --show
+free -h
+
+# 스왑 비활성화 시 재활성화
+sudo swapon /swapfile
+```
+
+### 2.4 SSH 접속
+
+```bash
+# Node 1 (Validator + Fullnode + Faucet + nginx)
 ssh -i ~/.ssh/.awskey/nasun-devnet-key.pem ubuntu@3.38.127.23
 
-# Node 2
+# Node 2 (Validator)
 ssh -i ~/.ssh/.awskey/nasun-devnet-key.pem ubuntu@3.38.76.85
 ```
 
@@ -94,13 +135,15 @@ ssh -i ~/.ssh/.awskey/nasun-devnet-key.pem ubuntu@3.38.76.85
 
 ## 3. 서비스 관리
 
-### 3.1 systemd 서비스 목록
+### 3.1 systemd 서비스 배치 (2-Node 아키텍처, V6)
 
-| 서비스 | 설명 | 포트 |
-|--------|------|------|
-| `nasun-validator` | Validator 노드 | 8080, 8084 |
-| `nasun-fullnode` | Fullnode (RPC 서비스) | 9000 |
-| `nasun-faucet` | Faucet 서비스 | 5003 |
+| 노드 | 서비스 | 설명 | 포트 |
+|------|--------|------|------|
+| Node 1 | `nasun-validator` | Validator | 8080, 8084 |
+| Node 1 | `nasun-fullnode` | Fullnode (RPC) | 9000 |
+| Node 1 | `nasun-faucet` | Faucet | 5003 |
+| Node 1 | `nginx` | HTTPS 리버스 프록시 | 443 |
+| Node 2 | `nasun-validator` | Validator | 8080, 8084 |
 
 ### 3.2 서비스 관리 명령어
 
@@ -129,28 +172,46 @@ sudo systemctl stop nasun-fullnode
 └── nasun-faucet.service
 ```
 
-### 3.4 현재 서비스 설정 (예: nasun-fullnode.service)
+### 3.4 현재 서비스 설정 (Node 1)
 
+**nasun-fullnode.service**
 ```ini
 [Unit]
-Description=Nasun Devnet Fullnode (RPC)
+Description=Nasun Fullnode (RPC)
 After=network.target nasun-validator.service
 
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu
-Environment="RUST_LOG=warn"    # 로그 레벨 설정
-ExecStart=/home/ubuntu/sui-node --config-path fullnode.yaml
+Environment="RUST_LOG=warn"
+ExecStart=/home/ubuntu/sui-node --config-path /home/ubuntu/.sui/sui_config/fullnode.yaml
 Restart=always
 RestartSec=10
-LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-**중요**: `RUST_LOG=warn` 환경변수가 설정되어 있어야 로그량이 줄어듭니다.
+**nasun-faucet.service**
+```ini
+[Unit]
+Description=Nasun Devnet Faucet
+After=network.target nasun-fullnode.service
+
+[Service]
+Type=simple
+User=ubuntu
+Environment="RUST_LOG=warn"
+Environment="SUI_CONFIG_DIR=/home/ubuntu/.sui/sui_config"
+ExecStart=/home/ubuntu/sui-faucet --host-ip 0.0.0.0 --port 5003 --amount 100000000000
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**중요**: 모든 서비스에 `RUST_LOG=warn` 환경변수가 설정되어 있어야 로그량이 줄어듭니다.
 
 ---
 
@@ -275,10 +336,10 @@ fi
 
 양 노드에 `/home/ubuntu/checkpoint-monitor.sh` 스크립트 설치:
 
-**Node 1 버전** (validator + fullnode 재시작, SNS 알림):
+**Node 1/2 버전** (validator 재시작, Node 1 RPC 모니터링, SNS 알림):
 ```bash
 #!/bin/bash
-RPC_URL="http://localhost:9000"
+RPC_URL="http://3.38.127.23:9000"
 STATE_FILE="/home/ubuntu/.checkpoint_state"
 STALE_THRESHOLD=5  # 5분
 
@@ -306,16 +367,10 @@ if [ "$STALE_COUNT" -ge "$STALE_THRESHOLD" ]; then
     --message "ALERT: Checkpoint stuck at $CURRENT for ${STALE_COUNT}min. Restarting..." \
     --subject "Nasun Devnet Consensus Alert" 2>/dev/null || true
   sudo systemctl restart nasun-validator
-  sleep 5
-  sudo systemctl restart nasun-fullnode
   echo "$CURRENT 0" > "$STATE_FILE"
-  logger -t checkpoint-monitor "Restarted validator and fullnode due to stale checkpoint"
+  logger -t checkpoint-monitor "Restarted validator due to stale checkpoint"
 fi
 ```
-
-**Node 2 버전** (validator만 재시작, RPC는 Node 1 사용):
-- `RPC_URL="http://3.38.127.23:9000"` (Node 1의 RPC)
-- `sudo systemctl restart nasun-validator` (validator만)
 
 **Cron 설정** (매분 실행):
 ```
@@ -325,7 +380,7 @@ fi
 | 노드 | RPC URL | 재시작 대상 | SNS 알림 |
 |------|---------|------------|----------|
 | Node 1 | localhost:9000 | validator + fullnode | O |
-| Node 2 | 3.38.127.23:9000 | validator만 | X |
+| Node 2 | 3.38.127.23:9000 | validator | X |
 
 ---
 
@@ -489,6 +544,113 @@ fi
 - 체크포인트 모니터링 스크립트 설치 (양 노드)
 - 5분간 멈춤 시 자동 복구 및 SNS 알림
 
+### 5.7 Node 1 반복 크래시 및 3-Node 아키텍처 전환 (2026-01-23)
+
+**증상**:
+- Node 1이 반복적으로 Disconnected 상태 발생 (3회 이상)
+- SSH 접속 불가, Force Stop/Start로 복구 반복
+- 복구 후에도 수일 내 재발
+
+**원인**:
+- Node 1에서 Validator + Fullnode (2개 sui-node 프로세스) 동시 실행
+- c6i.xlarge (8GB RAM)에서 메모리/리소스 경합
+- Swap 설정으로도 완전한 방지 불가
+
+**해결**:
+1. Node 3 (t3.large, 52.78.117.96) 추가
+2. Fullnode + Faucet + nginx를 Node 3으로 이전
+3. Node 1은 Validator Only로 변경
+4. DNS (rpc.devnet.nasun.io, faucet.devnet.nasun.io) → Node 3으로 변경
+5. SSL 인증서 Node 3에서 발급
+
+**결과**: 각 노드가 단일 sui-node 프로세스만 실행하여 안정성 확보.
+
+### 5.8 V5 Execution Engine Halt 및 복구 (2026-01-23)
+
+**증상**:
+- 양 validator에서 `Failed to send certified blocks: SendError` 경고 지속
+- 새 체크포인트 생성 중단 (20시간 이상)
+- Faucet/RPC 정상 응답하지만 체크포인트 멈춤
+
+**원인**:
+- Execution engine의 내부 채널 receiver가 drop됨
+- Consensus는 블록을 계속 생성하지만, execution이 처리 불가
+- 정확한 트리거 불명 (Jan 22 08:30경 발생)
+
+**해결 시도**:
+1. **consensus_db만 삭제** → 실패
+   - `assertion failed: Commit replay should start at the beginning`
+   - authorities_db에 commit index 59496 기록 vs consensus_db 비어있음 → 불일치
+
+2. **authorities_db + consensus_db 모두 삭제** → 성공
+   ```bash
+   # 양 노드에서 실행
+   sudo systemctl stop nasun-validator
+   rm -rf ~/.sui/sui_config/authorities_db/
+   rm -rf ~/.sui/sui_config/consensus_db/
+   sudo systemctl start nasun-validator
+   ```
+   - 기존 genesis.blob으로 epoch 0부터 재시작
+   - Chain ID 유지 (`56c8b101`)
+   - **모든 온체인 상태 초기화** (컨트랙트, 트랜잭션 히스토리 삭제)
+
+3. Node 3 fullnode도 DB 삭제 후 재동기화
+   ```bash
+   sudo systemctl stop nasun-fullnode
+   rm -rf ~/full_node_db/
+   sudo systemctl start nasun-fullnode
+   ```
+
+**교훈**:
+- `consensus_db`와 `authorities_db`는 commit index로 연동되어 있어 하나만 삭제 불가
+- Execution engine halt 시 전체 DB 초기화가 유일한 복구 방법
+- "Failed to send certified blocks" 에러가 지속되면 네트워크 halt 상태 의심
+- 복구 후에도 해당 WARN 로그가 표시되지만 기능에는 영향 없음
+
+### 5.9 V6 리셋 및 2-Node 아키텍처 전환 (2026-01-27)
+
+**배경**:
+V5 네트워크에서 3-Node 아키텍처 (Node 1,2: Validator, Node 3: Fullnode+Faucet)를 운영 중
+Node 3 (t3.large, 8GB RAM)이 Fullnode 운영에 메모리 부족으로 반복 크래시 발생.
+
+**V5에서 발생한 문제들**:
+1. Node 3 메모리 부족으로 인한 반복적인 Fullnode 크래시
+2. "thread stall" 및 "slow DB writes" 경고 지속
+3. Fullnode가 Validator와 동기화 유지 실패
+4. 합의 오류로 인한 체크포인트 진행 멈춤
+
+**V6 전환 결정 이유**:
+1. **비용 절감**: Node 3 제거로 월 ~$60 절감 ($180 → $120)
+2. **안정성 확보**: t3.large가 Fullnode에 부적합, c6i.xlarge에서 운영
+3. **단순화**: 3-node 아키텍처의 복잡성 제거
+4. **합의 오류 복구**: V5에서 발생한 합의 오류를 Genesis 리셋으로 해결
+
+**전환 작업 (2026-01-27)**:
+1. Node 3 서비스 중지 및 EC2 인스턴스 Stop
+2. Node 1/2에서 모든 DB 삭제
+3. Node 1에서 새 Genesis 생성 (2시간 epoch 유지)
+4. Fullnode 설정을 Node 1으로 이동
+5. Faucet 및 nginx 설정을 Node 1으로 이동
+6. DNS (rpc/faucet.devnet.nasun.io) A 레코드를 Node 1 IP로 변경
+7. SSL 인증서 Node 1에서 재발급 (certbot)
+8. 모든 스마트 컨트랙트 재배포
+
+**결과**:
+- Chain ID: `12bf3808`
+- 2-Node 아키텍처 안정 운영
+- 모든 서비스 정상 작동 (RPC, Faucet, HTTPS)
+
+**현재 상태 (2026-01-27 기준)**:
+| 항목 | 상태 |
+|------|------|
+| Chain ID | `12bf3808` |
+| 체크포인트 | 진행 중 (20000+) |
+| Node 1 (Validator+Fullnode+Faucet) | ✅ 정상 |
+| Node 2 (Validator) | ✅ 정상 |
+| RPC (https://rpc.devnet.nasun.io) | ✅ 정상 |
+| Faucet (https://faucet.devnet.nasun.io) | ✅ 정상 |
+| 디스크 사용량 | Node 1: 16%, Node 2: 13% |
+
 ---
 
 ## 6. 모니터링 명령어
@@ -596,3 +758,6 @@ SIZE1=$(stat -c%s /var/log/syslog); sleep 30; SIZE2=$(stat -c%s /var/log/syslog)
 | 1.1.0 | 2025-12-25 | V3 리셋 반영 (Chain ID: 6681cdfd), journald 설정 추가, 로그 관리 최적화, 새 문제 해결 사례 추가 | Claude Code |
 | 1.2.0 | 2026-01-01 | EC2 Auto Recovery 설정, 디스크 모니터링 스크립트, SNS 알림 설정, Node 1 impaired 복구 사례 추가 | Claude Code |
 | 1.3.0 | 2026-01-01 | 체크포인트 모니터링 및 자동 복구 스크립트 추가, 합의 멈춤 복구 사례 추가 | Claude Code |
+| 2.0.0 | 2026-01-17 | V5 리셋 반영 (Chain ID: 56c8b101, 2시간 epoch, NSN 토큰, DB pruning), 스왑 설정 추가 | Claude Code |
+| 3.0.0 | 2026-01-23 | 3-Node 아키텍처 전환 (Node 3 추가), V5 execution halt 복구 사례, 서비스 배치/엔드포인트 업데이트 | Claude Code |
+| 4.0.0 | 2026-01-27 | **V6 리셋 및 2-Node 전환** (Chain ID: 12bf3808), Node 3 중지, Node 1에서 Fullnode/Faucet/nginx 통합 운영, 비용 절감 (~$60/월), 전체 컨트랙트 재배포 | Claude Code |
