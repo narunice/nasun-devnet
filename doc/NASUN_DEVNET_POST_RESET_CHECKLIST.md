@@ -46,7 +46,7 @@
 
 | 항목 | 설명 | 영향 받는 앱 |
 |------|------|-------------|
-| **Pado Tokens** | NBTC, NUSDC 토큰 + Faucet | Pado |
+| **Devnet Tokens** | 통합 NBTC, NUSDC 토큰 + Faucet | 모든 앱 (Pado, Baram 등) |
 | **DeepBook V3** | CLOB 거래 엔진 | Pado |
 | **Trading Pools** | NBTC/NUSDC, NSN/NUSDC | Pado |
 | **Prediction Market** | 바이너리 예측 마켓 | Pado |
@@ -63,13 +63,13 @@
 ### 2.1 배포 순서 (의존성 순서)
 
 ```
-1. Pado Tokens + Faucet  ←  다른 컨트랙트의 토큰 타입 의존
-2. DeepBook V3           ←  Trading Pools의 Pool 생성 의존
-3. Trading Pools         ←  (Optional) Pool 생성
-4. Prediction Market     ←  Pado Tokens 의존
-5. Governance            ←  독립적
-6. Baram                 ←  Pado Tokens 의존 (NUSDC 결제)
-7. Baram Executor        ←  독립적
+1. Devnet Tokens + Faucet  ←  다른 컨트랙트의 토큰 타입 의존 (packages/devnet-tokens)
+2. DeepBook V3             ←  Trading Pools의 Pool 생성 의존
+3. Trading Pools           ←  (Optional) Pool 생성
+4. Prediction Market       ←  Devnet Tokens 의존
+5. Governance              ←  독립적
+6. Baram                   ←  Devnet Tokens 의존 (NUSDC 결제)
+7. Baram Executor          ←  독립적
 ```
 
 ### 2.2 Move.toml 업데이트
@@ -91,14 +91,16 @@ devnet = "<NEW_CHAIN_ID>"
 nasun-devnet = "<NEW_CHAIN_ID>"
 ```
 
-### 2.3 Step 1: Pado Tokens + Faucet
+### 2.3 Step 1: Devnet Tokens + Faucet
+
+> **통합 토큰 패키지**: `packages/devnet-tokens`는 모든 앱에서 공용으로 사용하는 NBTC/NUSDC 토큰입니다.
 
 ```bash
-cd /home/naru/my_apps/nasun-monorepo/apps/pado/contracts
+cd /home/naru/my_apps/nasun-monorepo/packages/devnet-tokens
 
-# Move.toml 업데이트 (published-at, pado address를 0x0으로 리셋)
+# Move.toml 업데이트 (published-at, devnet_tokens address를 0x0으로 리셋)
 # [addresses]
-# pado = "0x0"
+# devnet_tokens = "0x0"
 # published-at 줄 삭제 또는 주석 처리
 
 # 빌드
@@ -111,9 +113,9 @@ sui client publish --gas-budget 100000000
 **기록할 값:**
 | 변수명 | 설명 | 예시 |
 |--------|------|------|
-| `VITE_TOKENS_PACKAGE` | Package ID | `0xc847...` |
-| `VITE_TOKEN_FAUCET` | TokenFaucet Shared Object | `0xd872...` |
-| `VITE_CLAIM_RECORD` | ClaimRecord Shared Object | `0x563f...` |
+| `VITE_TOKENS_PACKAGE` | Package ID | `0x10748ed4...` |
+| `VITE_TOKEN_FAUCET` | TokenFaucet Shared Object | `0x04aa4144...` |
+| `VITE_CLAIM_RECORD` | ClaimRecord Shared Object | `0x8b9e8545...` |
 | `VITE_NBTC_TYPE` | NBTC Type | `<PKG>::nbtc::NBTC` |
 | `VITE_NUSDC_TYPE` | NUSDC Type | `<PKG>::nusdc::NUSDC` |
 
@@ -131,7 +133,7 @@ pado = "<NEW_PACKAGE_ID>"
 > 배포 전에 가스 코인을 병합하세요: `sui client merge-coin --primary-coin <COIN_ID> --coin-to-merge <OTHER_COIN_ID>`
 
 ```bash
-# 먼저 token 패키지 배포
+# 먼저 DeepBook token 패키지 배포 (DeepBook 전용 토큰)
 cd /home/naru/my_apps/nasun-monorepo/apps/pado/deepbookv3/packages/token
 sui move build
 sui client publish --gas-budget 100000000
@@ -194,15 +196,15 @@ sui client publish --gas-budget 100000000
 
 ### 2.7 Step 5: Baram (AI Settlement Layer)
 
-> **Note**: Baram 패키지는 pado_tokens를 의존성으로 사용합니다.
-> `--with-unpublished-dependencies` 플래그 사용 시 pado_tokens 모듈도 함께 배포됩니다.
+> **Note**: Baram 패키지는 devnet_tokens를 의존성으로 사용합니다.
+> `--with-unpublished-dependencies` 플래그 사용 시 devnet_tokens 모듈도 함께 배포됩니다.
 
 ```bash
 cd /home/naru/my_apps/nasun-monorepo/apps/baram/contracts
 
 # Move.toml 업데이트
 # - [environments] 섹션에 새 chain ID 추가
-# - [addresses]에서 pado 주소 제거 (의존성에서 가져옴)
+# - [addresses]에서 devnet_tokens 주소 설정 (Step 1에서 배포한 ID)
 
 # 이전 Pub 파일 삭제
 rm -f Pub.devnet.toml
@@ -466,7 +468,7 @@ git add . && git commit -m "chore: update devnet IDs for V7"
 | `.env.staging` | 모든 VITE_* 환경변수 | `pnpm devnet:sync`로 자동화 |
 | `.env.local` | 모든 VITE_* 환경변수 | `pnpm devnet:sync`로 자동화 |
 | `frontend/src/features/prediction/constants.ts` | Package ID, Market IDs | ✅ 마이그레이션 완료 |
-| `frontend/src/lib/unified-margin.ts` | PADO_TOKENS_PACKAGE | 검토 필요 |
+| `frontend/src/lib/unified-margin.ts` | DEVNET_TOKENS_PACKAGE | 검토 필요 |
 | `frontend/src/features/lottery/constants.ts` | NUSDC_TYPE | ✅ 마이그레이션 완료 |
 | `contracts/Move.toml` | published-at, pado address | 수동 업데이트 필요 |
 | `contracts-prediction/Move.toml` | pado address, environments | 수동 업데이트 필요 |
@@ -508,7 +510,7 @@ VITE_DEEPBOOK_REGISTRY=<REGISTRY_ID>
 VITE_DEEPBOOK_ADMIN_CAP=<ADMIN_CAP_ID>
 VITE_DEEP_TOKEN=<DEEP_TOKEN_ID>
 
-# Pado Tokens Package
+# Devnet Tokens Package (통합 토큰)
 VITE_TOKENS_PACKAGE=<TOKENS_PACKAGE_ID>
 
 # Token Types
@@ -598,7 +600,7 @@ export const NASUN_DEVNET_DELEGATION_REGISTRY_ID = '';  // TODO: 배포 필요�
 
 ### 5.2 스마트 컨트랙트 검증
 
-- [ ] Pado Tokens 배포 완료
+- [ ] Devnet Tokens 배포 완료 (packages/devnet-tokens)
 - [ ] Token Faucet 작동 (NBTC, NUSDC 수령)
 - [ ] DeepBook V3 배포 완료
 - [ ] Prediction Market 배포 완료

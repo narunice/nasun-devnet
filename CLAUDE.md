@@ -575,11 +575,13 @@ zkLogin의 "Invalid signature" 에러 해결:
 | zkLogin | ❌ 불가 | ✅ 정상 |
 | Config 경로 | `~/.nasun/nasun_config/` | `~/.sui/sui_config/` (symlink) |
 
-### 배포된 컨트랙트 (V4)
+### 배포된 컨트랙트 (V4) - 레거시
+
+> **참고**: V4의 pado_tokens는 V6에서 devnet_tokens로 대체되었습니다.
 
 | 컨트랙트 | Object ID |
 |----------|-----------|
-| pado_tokens Package | `0x7d943e0325ce288eb5faf6c68b35a51227890787762cb2f21072460a34097bfd` |
+| pado_tokens Package (레거시) | `0x7d943e0325ce288eb5faf6c68b35a51227890787762cb2f21072460a34097bfd` |
 | TokenFaucet | `0xcef1706aa2907d92c170f052528e9255389da1a8210e25e361c0e810c34ba9f4` |
 | ClaimRecord | `0x7a0a164d3b115be35e40604dff322de5eb2468fa6deaec411d990066ac7e4326` |
 | NBTC Type | `0x7d943e...::nbtc::NBTC` |
@@ -640,11 +642,13 @@ ln -s ~/.sui/sui_config ~/.nasun/nasun_config
 | DB Pruning | 비활성화 | **50 epochs** |
 | zkLogin | ✅ 정상 | ✅ 정상 |
 
-### 배포된 컨트랙트 (V5)
+### 배포된 컨트랙트 (V5) - 레거시
+
+> **참고**: V5의 Pado Tokens는 V6에서 devnet_tokens (통합 토큰)로 대체되었습니다.
 
 | 컨트랙트 | Object ID |
 |----------|-----------|
-| **Pado Tokens Package** | `0xc84727af62147f35ccf070f521e441f48be9325ab0a1b56225f361f0bc266bb8` |
+| **Pado Tokens Package (레거시)** | `0xc84727af62147f35ccf070f521e441f48be9325ab0a1b56225f361f0bc266bb8` |
 | TokenFaucet | `0xd8722be320d057f7f47aa562f3d54f2e4bc51ea6a53cc05972940640d4f81708` |
 | ClaimRecord | `0x563fc1bb0e65babac3e34b698676c207b1f2b59c2b3e8feb5c230dab1809e689` |
 | NBTC Type | `0xc84727af...::nbtc::NBTC` |
@@ -709,11 +713,15 @@ cargo build --release
 
 ### 배포된 컨트랙트 (V6)
 
+> V6 컨트랙트 상세 ID는 "배포된 스마트 컨트랙트 (V6)" 섹션 참조.
+
 | 컨트랙트 | 상태 |
 |----------|------|
-| Pado Tokens | 재배포 필요 |
-| DeepBook V3 | 재배포 필요 |
-| Governance | 재배포 필요 |
+| Devnet Tokens (통합 토큰) | ✅ 배포 완료 |
+| DeepBook V3 | ✅ 배포 완료 |
+| Prediction Market | ✅ 배포 완료 |
+| Governance | ✅ 배포 완료 |
+| Baram | ✅ 배포 완료 |
 
 ### 아키텍처 (2-node)
 

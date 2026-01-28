@@ -310,18 +310,20 @@ curl -X POST https://rpc.devnet.nasun.io \
 
 ### Deployment Order
 
-1. **Pado Tokens + Faucet** (NBTC, NUSDC) - Required for trading
+1. **Devnet Tokens + Faucet** (NBTC, NUSDC) - 통합 토큰 (packages/devnet-tokens)
 2. **DeepBook V3** - CLOB for order matching
 3. **Trading Pools** - NBTC/NUSDC, NSN/NUSDC
 4. **Prediction Market** - Binary prediction contracts
 5. **Governance** - Voting contracts
-6. **Baram** - AI Settlement Layer (includes pado_tokens)
+6. **Baram** - AI Settlement Layer (uses devnet_tokens)
 7. **Baram Executor** - TEE Executor Registry
 
-### Step 1: Deploy Pado Tokens + Faucet
+### Step 1: Deploy Devnet Tokens + Faucet
+
+> **통합 토큰 패키지**: 모든 앱에서 공용으로 사용하는 NBTC/NUSDC 토큰입니다.
 
 ```bash
-cd /home/naru/my_apps/nasun-monorepo/apps/pado/contracts
+cd /home/naru/my_apps/nasun-monorepo/packages/devnet-tokens
 sui move build
 sui client publish --gas-budget 100000000
 
@@ -372,14 +374,14 @@ sui client publish --gas-budget 100000000
 
 ### Step 5: Deploy Baram (AI Settlement Layer)
 
-> **Note**: Baram uses pado_tokens as dependency. Use `--with-unpublished-dependencies` if pado_tokens
-> was not separately published, or ensure pado_tokens has proper Pub.devnet.toml.
+> **Note**: Baram uses devnet_tokens as dependency. Use `--with-unpublished-dependencies` if devnet_tokens
+> was not separately published, or ensure devnet_tokens has proper Pub.devnet.toml.
 
 ```bash
 cd /home/naru/my_apps/nasun-monorepo/apps/baram/contracts
 
 # Update Move.toml [environments] section with new chain ID
-# Remove pado address from [addresses] if using dependency
+# Set devnet_tokens address from Step 1
 
 # Build and publish
 sui client test-publish --build-env devnet --with-unpublished-dependencies --gas-budget 100000000
