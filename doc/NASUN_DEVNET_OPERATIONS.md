@@ -1,6 +1,6 @@
 # Nasun Devnet 운영 가이드
 
-**Version**: 4.0.0
+**Version**: 4.1.0
 **Created**: 2025-12-23
 **Updated**: 2026-01-27
 **Author**: Claude Code
@@ -17,6 +17,8 @@
 5. [문제 해결 사례](#5-문제-해결-사례)
 6. [모니터링 명령어](#6-모니터링-명령어)
 7. [긴급 대응 절차](#7-긴급-대응-절차)
+8. [중앙화된 ID 관리](#8-중앙화된-id-관리-nasundevnet-config)
+9. [향후 계획](#9-향후-계획)
 
 ---
 
@@ -750,9 +752,127 @@ SIZE1=$(stat -c%s /var/log/syslog); sleep 30; SIZE2=$(stat -c%s /var/log/syslog)
 
 ---
 
-## 8. 향후 계획
+## 8. 중앙화된 ID 관리 (@nasun/devnet-config)
 
-### 8.1 V7 리셋 시 Graviton (ARM) 전환 계획
+### 8.1 개요
+
+Devnet 리셋 후 10개 이상의 파일에서 ID를 수동 업데이트하던 문제를 해결하기 위해 `@nasun/devnet-config` 패키지를 도입했습니다.
+
+**도입 전 문제점:**
+- Devnet 리셋 시 10+ 파일에서 수동 ID 업데이트 필요
+- 실수로 구버전 ID 사용 시 런타임 에러
+- 업데이트 시간 30분+
+
+**도입 후:**
+- JSON 파일 1개만 수정
+- `pnpm devnet:sync`로 .env 자동 동기화
+- 업데이트 시간 5분
+
+### 8.2 새로운 Devnet 리셋 워크플로우
+
+```bash
+# 1. 스마트 컨트랙트 배포 후 ID 기록
+
+# 2. devnet-ids.json 업데이트 (단일 소스)
+cd /home/naru/my_apps/nasun-monorepo
+vi packages/devnet-config/devnet-ids.json
+
+# 3. .env 파일 자동 동기화
+pnpm devnet:sync
+
+# 4. 커밋
+git add . && git commit -m "chore: update devnet IDs for V7"
+```
+
+### 8.3 devnet-ids.json 구조
+
+```json
+{
+  "version": "V6",
+  "lastUpdated": "2026-01-27",
+  "network": {
+    "chainId": "12bf3808",
+    "rpcUrl": "https://rpc.devnet.nasun.io",
+    "faucetUrl": "https://faucet.devnet.nasun.io"
+  },
+  "tokens": {
+    "packageId": "0xd0e01761...",
+    "tokenFaucet": "0x91ff89b00beb...",
+    "nbtcType": "0xd0e01761...::nbtc::NBTC",
+    "nusdcType": "0xd0e01761...::nusdc::NUSDC"
+  },
+  "deepbook": { ... },
+  "prediction": { ... },
+  "governance": { ... },
+  "baram": { ... }
+}
+```
+
+### 8.4 마이그레이션된 파일
+
+| 앱 | 파일 | 변경 내용 |
+|----|------|----------|
+| @nasun/wallet | `src/config/tokens.ts` | NBTC_TYPE, NUSDC_TYPE import |
+| @nasun/wallet | `src/sui/tokenFaucet.ts` | TOKENS_PACKAGE_ID, TOKEN_FAUCET import |
+| Pado | `features/prediction/constants.ts` | @nasun/devnet-config에서 import |
+| Pado | `features/lottery/constants.ts` | @nasun/devnet-config에서 import |
+| Baram | `config/network.ts` | fallback을 devnet-config에서 import |
+| Nasun Website | `constants/suiPackageConstants.ts` | @nasun/devnet-config에서 import |
+
+### 8.5 패키지 위치
+
+```
+packages/devnet-config/
+├── package.json
+├── devnet-ids.json          # 단일 소스 of truth
+├── src/
+│   ├── index.ts             # 메인 export
+│   ├── types.ts             # 타입 정의
+│   └── ids/                 # 도메인별 ID export
+│       ├── network.ts
+│       ├── tokens.ts
+│       ├── deepbook.ts
+│       ├── prediction.ts
+│       ├── lottery.ts
+│       ├── governance.ts
+│       └── baram.ts
+└── scripts/
+    └── sync-env.ts          # .env 동기화 스크립트
+```
+
+### 8.6 통합 토큰 패키지 (packages/devnet-tokens)
+
+모든 나선 앱에서 공용으로 사용하는 NBTC/NUSDC 토큰 패키지.
+
+**위치**: `nasun-monorepo/packages/devnet-tokens/`
+
+**포함 컨트랙트**:
+| 파일 | 설명 |
+|------|------|
+| `nbtc.move` | NBTC (8 decimals) - Nasun Network Test BTC |
+| `nusdc.move` | NUSDC (6 decimals) - Nasun Network Test USDC |
+| `faucet.move` | 통합 TokenFaucet (24시간 cooldown rate limiting) |
+
+**V6 배포 ID**:
+| 항목 | Object ID |
+|------|-----------|
+| Package | `0x10748ed4f5063ca4a564fdfecc289954d14efa1a209e7292dcc18d65b2cb4017` |
+| TokenFaucet | `0x04aa41442a9b812d29bb578aa82358d2b9e678240814368e32d82efa79669e14` |
+| ClaimRecord | `0x8b9e854509c950d01ccd37190ba967e2de2197908f5c164f7cc193714faac4a8` |
+| UpgradeCap | `0x2017d606c566ff13cbaf23bf18b5e413b95bb9bcd333c2f413878e7ddddf2a87` |
+
+**Devnet 리셋 후 업데이트 필요 파일**:
+- `packages/devnet-tokens/Move.toml` - published-at, addresses 섹션
+- `packages/devnet-config/devnet-ids.json` - tokens 섹션
+
+> **배경**: 기존에 Pado 앱과 Baram 앱이 각각 별도의 NUSDC를 사용하여 혼란이 발생.
+> 이를 해결하기 위해 모든 앱에서 공용으로 사용할 수 있는 통합 토큰 패키지 생성.
+
+---
+
+## 9. 향후 계획
+
+### 9.1 V7 리셋 시 Graviton (ARM) 전환 계획
 
 다음 Genesis 리셋(V7) 시 비용 절감을 위해 ARM 아키텍처로 전환 예정.
 
@@ -780,7 +900,7 @@ SIZE1=$(stat -c%s /var/log/syslog); sleep 30; SIZE2=$(stat -c%s /var/log/syslog)
 | 월 비용 (2대) | ~$248 | ~$198 |
 | 절감액 | - | **~$50/월** |
 
-### 8.2 V7 후 Compute Savings Plan 적용
+### 9.2 V7 후 Compute Savings Plan 적용
 
 V7 Graviton 전환 완료 후, **Compute Savings Plan** (1년 No Upfront)을 적용하여 추가 비용 절감.
 
@@ -799,6 +919,28 @@ V7 Graviton 전환 완료 후, **Compute Savings Plan** (1년 No Upfront)을 적
 > **주의**: 현재는 V7 전환 예정이므로 c6i 인스턴스에 대한 Savings Plan 구매 보류.
 > V7 완료 후 c7g.xlarge 기준으로 Compute Savings Plan 1년 No Upfront 구매 권장.
 
+### 9.3 V7 Faucet 설정 수정
+
+V6에서 NSN faucet이 500 NSN을 지급하는 문제 수정 (목표: 100 NSN/요청).
+
+**현재 V6 설정 (문제)**:
+```bash
+# /etc/systemd/system/nasun-faucet.service
+ExecStart=/home/ubuntu/sui-faucet --host-ip 0.0.0.0 --port 5003 --amount 100000000000
+# --amount 100 NSN × --num-coins 5 (기본값) = 500 NSN 총
+```
+
+**V7 수정 설정**:
+```bash
+# 20 NSN × 5 coins = 100 NSN 총
+ExecStart=/home/ubuntu/sui-faucet --host-ip 0.0.0.0 --port 5003 --amount 20000000000
+```
+
+| 버전 | 설정 | 결과 |
+|------|------|------|
+| V6 (현재) | `--amount 100000000000` | 500 NSN (100×5) |
+| V7 (수정) | `--amount 20000000000` | **100 NSN (20×5)** |
+
 ---
 
 ## 변경 이력
@@ -812,3 +954,4 @@ V7 Graviton 전환 완료 후, **Compute Savings Plan** (1년 No Upfront)을 적
 | 2.0.0 | 2026-01-17 | V5 리셋 반영 (Chain ID: 56c8b101, 2시간 epoch, NSN 토큰, DB pruning), 스왑 설정 추가 | Claude Code |
 | 3.0.0 | 2026-01-23 | 3-Node 아키텍처 전환 (Node 3 추가), V5 execution halt 복구 사례, 서비스 배치/엔드포인트 업데이트 | Claude Code |
 | 4.0.0 | 2026-01-27 | **V6 리셋 및 2-Node 전환** (Chain ID: 12bf3808), Node 3 중지, Node 1에서 Fullnode/Faucet/nginx 통합 운영, 비용 절감 (~$60/월), 전체 컨트랙트 재배포 | Claude Code |
+| 4.1.0 | 2026-01-27 | **중앙화된 ID 관리 시스템 도입** (@nasun/devnet-config), Section 8 추가, devnet 리셋 워크플로우 단순화 (10+ 파일 → 1개 JSON) | Claude Code |

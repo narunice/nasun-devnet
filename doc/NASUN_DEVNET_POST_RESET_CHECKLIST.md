@@ -1,6 +1,6 @@
 # Nasun Devnet Post-Reset Checklist
 
-**Version**: 3.0.0
+**Version**: 3.1.0
 **Created**: 2026-01-17
 **Updated**: 2026-01-27
 **Author**: Claude Code
@@ -397,42 +397,102 @@ curl -s -X POST https://rpc.devnet.nasun.io \
 
 ## 4. 프론트엔드 설정 업데이트
 
-### 4.1 업데이트 필요한 파일 목록
+### 4.0 중앙화된 ID 관리 (권장)
+
+**V6부터 `@nasun/devnet-config` 패키지를 통한 중앙화된 ID 관리를 사용합니다.**
+
+대부분의 앱이 이미 이 패키지를 사용하도록 마이그레이션되었으므로,
+devnet 리셋 후에는 다음 단계만 수행하면 됩니다:
+
+```bash
+cd /home/naru/my_apps/nasun-monorepo
+
+# 1. devnet-ids.json 업데이트 (배포된 컨트랙트 ID 기록)
+vi packages/devnet-config/devnet-ids.json
+
+# 2. .env 파일 자동 동기화
+pnpm devnet:sync
+
+# 3. 커밋
+git add . && git commit -m "chore: update devnet IDs for V7"
+```
+
+**devnet-ids.json 업데이트 항목:**
+| 섹션 | 업데이트 내용 |
+|------|-------------|
+| `version` | 버전 번호 (V6, V7 등) |
+| `lastUpdated` | 업데이트 날짜 |
+| `network.chainId` | 새 Chain ID |
+| `tokens.*` | Devnet Tokens Package ID, TokenFaucet ID 등 |
+| `deepbook.*` | DeepBook V3 Package ID, Registry ID 등 |
+| `prediction.*` | Prediction Market Package ID, GlobalState ID 등 |
+| `lottery.*` | Lottery Package ID, LotteryPool ID 등 |
+| `governance.*` | Governance Package ID, Dashboard ID 등 |
+| `baram.*` | Baram Package ID, Registry ID 등 |
+
+**Move.toml 수동 업데이트 필요:**
+> devnet-ids.json 외에 다음 Move.toml 파일들도 수동 업데이트 필요
+
+| 파일 | 업데이트 내용 |
+|------|-------------|
+| `packages/devnet-tokens/Move.toml` | published-at, devnet_tokens 주소 |
+| `apps/pado/contracts/Move.toml` | published-at, pado 주소 |
+| `apps/pado/contracts-prediction/Move.toml` | pado 주소, environments |
+| `apps/baram/contracts/Move.toml` | environments, addresses |
+| `apps/baram/contracts-executor/Move.toml` | environments |
+| `apps/nasun-website/contracts/governance/Move.toml` | environments |
+
+**자동으로 마이그레이션된 파일들** (더 이상 수동 업데이트 불필요):
+- `packages/wallet/src/config/tokens.ts` → @nasun/devnet-config 사용
+- `packages/wallet/src/sui/tokenFaucet.ts` → @nasun/devnet-config 사용
+- `apps/pado/frontend/src/features/prediction/constants.ts` → @nasun/devnet-config 사용
+- `apps/pado/frontend/src/features/lottery/constants.ts` → @nasun/devnet-config 사용
+- `apps/baram/frontend/src/config/network.ts` → @nasun/devnet-config 사용
+- `apps/nasun-website/frontend/src/constants/suiPackageConstants.ts` → @nasun/devnet-config 사용
+
+> **참고**: 아래 4.1 ~ 4.3 섹션은 레거시 참조용입니다.
+> 새로운 워크플로우에서는 `devnet-ids.json`만 업데이트하면 됩니다.
+
+### 4.1 (레거시) 업데이트 필요한 파일 목록
+
+> **주의**: 대부분의 파일은 이미 `@nasun/devnet-config`를 사용하도록 마이그레이션되었습니다.
+> `.env` 파일과 `Move.toml` 파일만 수동 업데이트가 필요할 수 있습니다.
 
 #### Pado 앱 (apps/pado)
 
-| 파일 | 업데이트 내용 |
-|------|-------------|
-| `.env.development` | 모든 VITE_* 환경변수 |
-| `.env.staging` | 모든 VITE_* 환경변수 |
-| `.env.local` | 모든 VITE_* 환경변수 |
-| `frontend/src/features/prediction/constants.ts` | Package ID, Market IDs |
-| `frontend/src/lib/unified-margin.ts` | PADO_TOKENS_PACKAGE |
-| `frontend/src/features/lottery/constants.ts` | NUSDC_TYPE |
-| `frontend/src/features/earn/hooks/useLendingActions.ts` | NUSDC_TYPE (fallback) |
-| `frontend/src/features/perp/hooks/usePerpOrder.ts` | nusdcType (hardcoded) |
-| `contracts/Move.toml` | published-at, pado address |
-| `contracts-prediction/Move.toml` | pado address, environments |
+| 파일 | 업데이트 내용 | 상태 |
+|------|-------------|------|
+| `.env.development` | 모든 VITE_* 환경변수 | `pnpm devnet:sync`로 자동화 |
+| `.env.staging` | 모든 VITE_* 환경변수 | `pnpm devnet:sync`로 자동화 |
+| `.env.local` | 모든 VITE_* 환경변수 | `pnpm devnet:sync`로 자동화 |
+| `frontend/src/features/prediction/constants.ts` | Package ID, Market IDs | ✅ 마이그레이션 완료 |
+| `frontend/src/lib/unified-margin.ts` | PADO_TOKENS_PACKAGE | 검토 필요 |
+| `frontend/src/features/lottery/constants.ts` | NUSDC_TYPE | ✅ 마이그레이션 완료 |
+| `contracts/Move.toml` | published-at, pado address | 수동 업데이트 필요 |
+| `contracts-prediction/Move.toml` | pado address, environments | 수동 업데이트 필요 |
 
 #### Baram 앱 (apps/baram)
 
-| 파일 | 업데이트 내용 |
-|------|-------------|
-| `.env` | 모든 VITE_* 환경변수 |
-| `frontend/.env` | 모든 VITE_* 환경변수 |
-| `contracts/Move.toml` | environments, addresses |
-| `contracts-executor/Move.toml` | environments |
+| 파일 | 업데이트 내용 | 상태 |
+|------|-------------|------|
+| `.env` | 모든 VITE_* 환경변수 | `pnpm devnet:sync`로 자동화 |
+| `frontend/.env` | 모든 VITE_* 환경변수 | `pnpm devnet:sync`로 자동화 |
+| `frontend/src/config/network.ts` | fallback 값 | ✅ 마이그레이션 완료 |
+| `contracts/Move.toml` | environments, addresses | 수동 업데이트 필요 |
+| `contracts-executor/Move.toml` | environments | 수동 업데이트 필요 |
 
 #### Nasun Website (apps/nasun-website)
 
-| 파일 | 업데이트 내용 |
-|------|-------------|
-| `frontend/.env.development` | Governance 환경변수 |
-| `frontend/.env.local` | Governance 환경변수 |
-| `frontend/src/constants/suiPackageConstants.ts` | NASUN_DEVNET_* 상수 |
-| `contracts/governance/Move.toml` | environments |
+| 파일 | 업데이트 내용 | 상태 |
+|------|-------------|------|
+| `frontend/.env.development` | Governance 환경변수 | `pnpm devnet:sync`로 자동화 |
+| `frontend/.env.local` | Governance 환경변수 | `pnpm devnet:sync`로 자동화 |
+| `frontend/src/constants/suiPackageConstants.ts` | NASUN_DEVNET_* 상수 | ✅ 마이그레이션 완료 |
+| `contracts/governance/Move.toml` | environments | 수동 업데이트 필요 |
 
-### 4.2 환경변수 상세
+### 4.2 (레거시) 환경변수 상세
+
+> **참고**: `pnpm devnet:sync` 명령으로 자동 생성됩니다.
 
 #### Pado .env 파일
 
@@ -491,7 +551,10 @@ VITE_NBTC_TYPE=<TOKENS_PACKAGE_ID>::nbtc::NBTC
 VITE_NUSDC_TYPE=<TOKENS_PACKAGE_ID>::nusdc::NUSDC
 ```
 
-### 4.3 하드코딩된 상수 파일 업데이트
+### 4.3 (레거시) 하드코딩된 상수 파일 업데이트
+
+> **참고**: 이 파일들은 이미 `@nasun/devnet-config`를 사용하도록 마이그레이션되었습니다.
+> 아래 내용은 참조용입니다.
 
 #### prediction/constants.ts
 
@@ -619,5 +682,5 @@ cat ~/.sui/sui_config/client.yaml | grep keystore
 
 ---
 
-**Document Version**: 3.0.0
+**Document Version**: 3.1.0
 **Last Updated**: 2026-01-27

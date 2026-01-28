@@ -249,15 +249,19 @@ curl -X POST http://localhost:9000 \
 
 **배포 Admin 주소**: `0xe1c4c90bd18d22d5d8fbc9ab7994bdcf1ac717714c0f5375528c229d6dfb3d90`
 
-### Pado Tokens
+### Devnet Tokens (통합 토큰)
+
+> 모든 나선 앱 (Pado, Baram 등)에서 공용으로 사용하는 NBTC/NUSDC 토큰 패키지.
+> 소스: `nasun-monorepo/packages/devnet-tokens/`
 
 | 항목 | Object ID |
 |------|-----------|
-| **Package** | `0xd0e01761b2f822df9cd412af99d75d35c477d805b1636981acd15c4a5c0ab772` |
-| TokenFaucet | `0x91ff89b00beb8a88ce9bc3eb370ccca072bf4288c3a23ec052c780386161ae3d` |
-| ClaimRecord | `0xc06fdade91177a678176b83b9f4b6b08e27888291bf7fc87b8c56519d4508498` |
-| NBTC Type | `0xd0e01761...::nbtc::NBTC` |
-| NUSDC Type | `0xd0e01761...::nusdc::NUSDC` |
+| **Package** | `0x10748ed4f5063ca4a564fdfecc289954d14efa1a209e7292dcc18d65b2cb4017` |
+| TokenFaucet | `0x04aa41442a9b812d29bb578aa82358d2b9e678240814368e32d82efa79669e14` |
+| ClaimRecord | `0x8b9e854509c950d01ccd37190ba967e2de2197908f5c164f7cc193714faac4a8` |
+| UpgradeCap | `0x2017d606c566ff13cbaf23bf18b5e413b95bb9bcd333c2f413878e7ddddf2a87` |
+| NBTC Type | `0x10748ed4f5063ca4a564fdfecc289954d14efa1a209e7292dcc18d65b2cb4017::nbtc::NBTC` |
+| NUSDC Type | `0x10748ed4f5063ca4a564fdfecc289954d14efa1a209e7292dcc18d65b2cb4017::nusdc::NUSDC` |
 
 ### DeepBook V3
 

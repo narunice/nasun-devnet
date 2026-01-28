@@ -1,6 +1,6 @@
 # Nasun Devnet Network Reset Guide
 
-**Version**: 4.0
+**Version**: 4.1
 **Last Updated**: 2026-01-27
 **Current Network**: V6 (Chain ID: `12bf3808`)
 
@@ -45,28 +45,52 @@ Record all deployed contracts before reset:
 
 | Contract | Package ID | Notes |
 |----------|------------|-------|
-| Pado Tokens | | NBTC, NUSDC + Faucet |
+| Devnet Tokens | | 통합 NBTC, NUSDC + Faucet (packages/devnet-tokens) |
 | DeepBook V3 | | CLOB for trading |
 | Prediction Market | | Binary prediction |
 | Governance | | Vote contracts |
+| Baram | | TEE-based price oracle |
 
-### 2. Files to Update After Reset
+### 2. Files to Update After Reset (Centralized ID Management)
+
+**V6부터 `@nasun/devnet-config` 패키지를 통한 중앙화된 ID 관리를 사용합니다.**
+
+대부분의 앱이 이미 이 패키지를 사용하도록 마이그레이션되었으므로,
+리셋 후에는 다음 파일들만 업데이트하면 됩니다:
 
 ```
-# Pado app
-apps/pado/.env.staging
-apps/pado/.env.development
-apps/pado/.env.local
-apps/pado/frontend/.env.staging
-apps/pado/frontend/src/features/prediction/constants.ts
+# 1. 중앙 소스 (핵심 - 반드시 업데이트)
+packages/devnet-config/devnet-ids.json
 
-# nasun-website
-apps/nasun-website/frontend/src/constants/suiPackageConstants.ts
-apps/nasun-website/frontend/.env.staging
+# 2. Move.toml 파일 (수동 업데이트 필요)
+packages/devnet-tokens/Move.toml              # 통합 토큰 패키지
+apps/pado/contracts/Move.toml
+apps/pado/contracts-prediction/Move.toml
+apps/baram/contracts/Move.toml
+apps/baram/contracts-executor/Move.toml
+apps/nasun-website/contracts/governance/Move.toml
 
-# Documentation
+# 3. 문서
 nasun-devnet/CLAUDE.md
-nasun-monorepo/CLAUDE.md
+```
+
+**자동으로 동기화되는 파일들** (pnpm devnet:sync 실행 시):
+```
+apps/pado/.env.development
+apps/pado/.env.staging
+apps/baram/.env
+apps/baram/frontend/.env
+apps/nasun-website/frontend/.env.development
+```
+
+**이미 마이그레이션된 TypeScript 파일들** (수동 업데이트 불필요):
+```
+packages/wallet/src/config/tokens.ts          → @nasun/devnet-config 사용
+packages/wallet/src/sui/tokenFaucet.ts        → @nasun/devnet-config 사용
+apps/pado/frontend/src/features/prediction/constants.ts  → @nasun/devnet-config 사용
+apps/pado/frontend/src/features/lottery/constants.ts     → @nasun/devnet-config 사용
+apps/baram/frontend/src/config/network.ts               → @nasun/devnet-config 사용
+apps/nasun-website/frontend/src/constants/suiPackageConstants.ts → @nasun/devnet-config 사용
 ```
 
 ---
@@ -406,6 +430,80 @@ sui client call \
 
 ---
 
+## Frontend ID Update (Centralized)
+
+스마트 컨트랙트 배포 후, 중앙화된 ID 관리 시스템을 통해 모든 앱의 ID를 업데이트합니다.
+
+### Step 1: Update devnet-ids.json
+
+```bash
+cd /home/naru/my_apps/nasun-monorepo
+vi packages/devnet-config/devnet-ids.json
+```
+
+배포된 컨트랙트의 ID를 각 섹션에 기록:
+
+```json
+{
+  "version": "V7",
+  "lastUpdated": "2026-XX-XX",
+  "network": {
+    "chainId": "<NEW_CHAIN_ID>"
+  },
+  "tokens": {
+    "packageId": "<TOKENS_PACKAGE_ID>",
+    "tokenFaucet": "<TOKEN_FAUCET_ID>",
+    "claimRecord": "<CLAIM_RECORD_ID>"
+  },
+  "deepbook": {
+    "tokenPackageId": "<TOKEN_PKG>",
+    "packageId": "<DEEPBOOK_PKG>",
+    "registry": "<REGISTRY_ID>",
+    "adminCap": "<ADMIN_CAP_ID>"
+  },
+  "prediction": {
+    "packageId": "<PREDICTION_PKG>",
+    "adminCap": "<ADMIN_CAP_ID>",
+    "globalState": "<GLOBAL_STATE_ID>"
+  },
+  "governance": {
+    "packageId": "<GOVERNANCE_PKG>",
+    "dashboard": "<DASHBOARD_ID>",
+    "adminCap": "<ADMIN_CAP_ID>",
+    "proposalTypeRegistry": "<REGISTRY_ID>"
+  },
+  "baram": {
+    "packageId": "<BARAM_PKG>",
+    "registry": "<REGISTRY_ID>",
+    "executorPackageId": "<EXECUTOR_PKG>",
+    "executorRegistry": "<EXECUTOR_REGISTRY_ID>"
+  }
+}
+```
+
+### Step 2: Sync .env Files
+
+```bash
+pnpm devnet:sync
+```
+
+이 명령은 다음 .env 파일들을 자동으로 업데이트합니다:
+- `apps/pado/.env.development`
+- `apps/pado/.env.staging`
+- `apps/baram/.env`
+- `apps/baram/frontend/.env`
+- `apps/nasun-website/frontend/.env.development`
+
+### Step 3: Commit Changes
+
+```bash
+git add packages/devnet-config/devnet-ids.json
+git add apps/*/.env* apps/*/frontend/.env*
+git commit -m "chore: update devnet IDs for V7"
+```
+
+---
+
 ## Verification Checklist
 
 - [ ] All 2 nodes running (Node 1 validator+fullnode+faucet, Node 2 validator)
@@ -417,7 +515,9 @@ sui client call \
 - [ ] All contracts redeployed
 - [ ] Baram contracts deployed (baram + baram_executor)
 - [ ] TEE Executor registered (if EC2 enclave available)
-- [ ] Frontend .env files updated
+- [ ] devnet-ids.json updated with all contract IDs
+- [ ] `pnpm devnet:sync` executed successfully
+- [ ] Frontend .env files updated (via devnet:sync)
 - [ ] CLAUDE.md documentation updated
 - [ ] Monitoring scripts working (disk-monitor.sh, checkpoint-monitor.sh)
 
@@ -539,5 +639,5 @@ ln -sf ~/.nasun/nasun_config/sui.keystore ~/.sui/sui_config/sui.keystore
 
 ---
 
-**Document Version**: 4.0
+**Document Version**: 4.1
 **Last Updated**: 2026-01-27
