@@ -48,8 +48,9 @@ Record all deployed contracts before reset:
 | Devnet Tokens | | 통합 NBTC, NUSDC + Faucet (packages/devnet-tokens) |
 | DeepBook V3 | | CLOB for trading |
 | Prediction Market | | Binary prediction |
-| Governance | | Vote contracts |
-| Baram | | TEE-based price oracle |
+| Governance | | Proposal (fee-based) + Poll (sponsored) 투표 시스템 |
+| Baram | | AI Settlement Layer |
+| Baram Executor | | TEE Executor Registry |
 
 ### 2. Files to Update After Reset (Centralized ID Management)
 

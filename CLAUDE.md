@@ -284,11 +284,34 @@ curl -X POST http://localhost:9000 \
 
 ### Governance
 
+> **투표 유형**:
+> - **Proposal**: 거버넌스 투표 (사용자가 가스비 지불, fee-based)
+> - **Poll**: 커뮤니티 설문 (스폰서가 가스비 지불, sponsored transaction)
+
 | 항목 | Object ID |
 |------|-----------|
 | **Package** | `0x02daf1f825b3eaae3b2f0718e7cbab884dc58d1b740c594f505004607b04e516` |
 | Dashboard | `0x3398b1931bc8c418b0e0e1d9c1e04537bfc82c3f85d4dc22e11c97469baee7ae` |
 | AdminCap | `0xd96d14baf4422909e6721c5533d981f0a481b947989c95502d3a45f89f607a04` |
+
+### Baram (AI Settlement Layer)
+
+> Baram은 AI 모델 추론 결과를 온체인에 결제하는 시스템입니다.
+> TEE Executor가 AI 추론을 수행하고 결과를 NUSDC로 결제합니다.
+
+| 항목 | Object ID |
+|------|-----------|
+| **Package** | `0xfbe120e1847ca3ce7968bc7d85504a202639666755d581cfe642df3e57b2bc2f` |
+| Registry | `0x52427e24315a444e9aa07ecb93df5a3392e1cb5d5bec8aba90c4c9eecaf77d3f` |
+| UpgradeCap | `0xa9a6ee0412639af01e630ce23d38b246a88bdfd3ee8db5e3634ce45fa1eefe62` |
+
+### Baram Executor
+
+| 항목 | Object ID |
+|------|-----------|
+| **Package** | `0xbc29ac0374a30203fe45f6d16965b117638f6816c209320c365961ccea2040d5` |
+| ExecutorRegistry | `0xeaac73903c49e3583085e2889cf2770b68bab9c06e239a6304ca12aa82b2d60b` |
+| ExecutorAdminCap | `0x0953696c5e412f6e6af77e2aae381e06afd4d738b6c26e8dc522d48f00412cd7` |
 
 ## RPC 테스트 명령어
 

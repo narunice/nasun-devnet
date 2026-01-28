@@ -796,13 +796,15 @@ git add . && git commit -m "chore: update devnet IDs for V7"
     "faucetUrl": "https://faucet.devnet.nasun.io"
   },
   "tokens": {
-    "packageId": "0xd0e01761...",
-    "tokenFaucet": "0x91ff89b00beb...",
-    "nbtcType": "0xd0e01761...::nbtc::NBTC",
-    "nusdcType": "0xd0e01761...::nusdc::NUSDC"
+    "packageId": "0x10748ed4...",
+    "tokenFaucet": "0x04aa4144...",
+    "claimRecord": "0x8b9e8545...",
+    "nbtcType": "0x10748ed4...::nbtc::NBTC",
+    "nusdcType": "0x10748ed4...::nusdc::NUSDC"
   },
   "deepbook": { ... },
   "prediction": { ... },
+  "lottery": { ... },
   "governance": { ... },
   "baram": { ... }
 }

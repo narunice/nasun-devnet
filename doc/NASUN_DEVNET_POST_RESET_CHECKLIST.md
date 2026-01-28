@@ -50,7 +50,7 @@
 | **DeepBook V3** | CLOB 거래 엔진 | Pado |
 | **Trading Pools** | NBTC/NUSDC, NSN/NUSDC | Pado |
 | **Prediction Market** | 바이너리 예측 마켓 | Pado |
-| **Governance** | 투표 대시보드 | Nasun Website |
+| **Governance** | Proposal (fee-based) + Poll (sponsored) 투표 | Nasun Website |
 | **Baram** | AI Settlement Layer | Baram |
 | **Baram Executor** | TEE Executor Registry | Baram |
 | **Dummy Proposals** | 테스트용 프로포절 | Nasun Website |
@@ -266,6 +266,12 @@ sui client call \
 ### 3.1 Governance: Proposal 및 Poll 생성
 
 스마트 컨트랙트 배포 후, 프론트엔드에서 표시할 테스트 데이터를 생성합니다.
+
+**투표 유형:**
+| 유형 | 설명 | 가스비 |
+|------|------|--------|
+| **Proposal** | 거버넌스 투표 (중요한 의사결정) | 사용자가 직접 지불 (fee-based) |
+| **Poll** | 커뮤니티 설문 (의견 수집) | 스폰서가 지불 (sponsored transaction) |
 
 #### 3.1.1 Proposal 생성 (Fee-based 투표)
 
