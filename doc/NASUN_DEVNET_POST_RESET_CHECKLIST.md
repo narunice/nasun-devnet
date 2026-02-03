@@ -448,7 +448,21 @@ git add . && git commit -m "chore: update devnet IDs for V7"
 | `apps/pado/contracts-prediction/Move.toml` | pado 주소, environments |
 | `apps/baram/contracts/Move.toml` | environments, addresses |
 | `apps/baram/contracts-executor/Move.toml` | environments |
+| `apps/baram/contracts-compliance/Move.toml` | environments |
+| `apps/baram/contracts-attestation/Move.toml` | environments |
 | `apps/nasun-website/contracts/governance/Move.toml` | environments |
+
+**Sui 프레임워크 Move.toml (중요):**
+
+> 리셋 시 Sui 바이너리를 리빌드하면 프레임워크의 `[environments]` chain ID가
+> Sui upstream 기본값으로 초기화될 수 있다. 이 경우 `sui move build`가
+> "Your active environment is not present in Move.toml" 에러로 실패한다.
+> 아래 두 파일의 chain ID를 Nasun devnet chain ID와 일치시켜야 한다.
+
+| 파일 | 업데이트 내용 |
+|------|-------------|
+| `nasun-devnet/sui/crates/sui-framework/packages/sui-framework/Move.toml` | `[environments]` chain ID |
+| `nasun-devnet/sui/crates/sui-framework/packages/move-stdlib/Move.toml` | `[environments]` chain ID |
 
 **자동으로 마이그레이션된 파일들** (더 이상 수동 업데이트 불필요):
 - `packages/wallet/src/config/tokens.ts` → @nasun/devnet-config 사용
@@ -628,7 +642,16 @@ export const NASUN_DEVNET_DELEGATION_REGISTRY_ID = '';  // TODO: 배포 필요�
 - [ ] Fullnode가 validator와 동기화 완료
 - [ ] Faucet 정상 작동 (`SUI_CONFIG_DIR` 및 keystore 경로 확인)
 
-### 5.5 프론트엔드 검증
+### 5.5 인프라 검증
+
+- [ ] DB Pruning 설정 확인: `num-epochs-to-retain: 50` (양쪽 노드 validator.yaml + fullnode.yaml)
+- [ ] Validator 시작 로그에서 pruning 동작 확인 (aggressive로 override 되는지)
+- [ ] 디스크 모니터링 스크립트 정상 (`~/disk-monitor.sh`, 70/80/90% 단계별 알림)
+- [ ] EBS 볼륨 크기 충분 (최소 100GB 권장, Validator+Fullnode 동시 운영 시)
+- [ ] Security Group SSH IP 규칙 현재 IP 포함 확인
+- [ ] `RUST_LOG=warn` 설정 확인 (모든 서비스)
+
+### 5.6 프론트엔드 검증
 
 - [ ] Pado 앱 개발 서버 실행 확인
 - [ ] Nasun Website 개발 서버 실행 확인
@@ -671,6 +694,9 @@ curl -s -X POST https://rpc.devnet.nasun.io \
 | zkLogin 실패 | Chain ID 불일치 | VITE_CHAIN_ID 확인 |
 | Faucet "No managed addresses" | keystore 경로 불일치 | Node 1에서 SUI_CONFIG_DIR 확인 (6.3 참조) |
 | Fullnode 동기화 안됨 | 설정 문제 | fullnode.yaml의 db-path 및 genesis 경로 확인 |
+| 디스크 100% / 서비스 ABRT | DB 무제한 성장 | full_node_db 삭제 → 서비스 재시작 → EBS 확장 (OPERATIONS 5.10 참조) |
+| Faucet "Failed to execute transaction" | Fullnode state 미동기화 | Fullnode 완전 동기화 대기 후 faucet 재시작 |
+| `sui move build` "not present in Move.toml" | Sui 프레임워크 chain ID 불일치 | 아래 6.4 참조 |
 
 ### 6.3 Node 1 Faucet 설정 참고
 
@@ -683,10 +709,59 @@ cat ~/.sui/sui_config/client.yaml | grep keystore
 # keystore 경로가 ~/.sui/sui_config/sui.keystore인지 확인
 ```
 
-### 6.3 관련 문서
+### 6.4 Sui 프레임워크 Chain ID 불일치 문제
+
+**증상**: `sui move build`가 다음 에러로 실패:
+```
+Your active environment `devnet` is not present in `Move.toml`, so you cannot publish to `devnet`.
+```
+
+패키지 Move.toml에 `[environments] devnet = "<CHAIN_ID>"`가 올바르게 설정되어 있어도 발생한다.
+
+**원인**: Sui CLI v1.63+ 부터 새로운 패키지 관리 시스템(`move-package-alt`)이 도입되었다.
+이 시스템은 Move.toml을 `ParsedManifest` 스키마로 파싱하는데, old-style Move.toml
+(`[addresses]`, `[dev-dependencies]` 등 포함)은 `deny_unknown_fields` 제약으로 인해
+파싱이 실패한다. 실패 시 환경 정보가 로드되지 않아 위 에러가 발생한다.
+
+추가로, Sui 바이너리를 리빌드하면 프레임워크의 `[environments]` chain ID가
+upstream 기본값으로 초기화되어 Nasun devnet chain ID와 불일치할 수 있다.
+
+**해결 방법**:
+
+1. **프레임워크 Move.toml chain ID 수정** (리빌드 후 필수):
+```bash
+# 현재 chain ID 확인
+sui client chain-identifier
+
+# 프레임워크 Move.toml 업데이트
+# sui-framework/Move.toml과 move-stdlib/Move.toml의 [environments] 섹션을
+# Nasun devnet chain ID로 수정
+vi nasun-devnet/sui/crates/sui-framework/packages/sui-framework/Move.toml
+vi nasun-devnet/sui/crates/sui-framework/packages/move-stdlib/Move.toml
+```
+
+2. **빌드 시 `test-publish --build-env` 사용** (워크어라운드):
+```bash
+# sui move build 대신 사용
+sui client test-publish <PACKAGE_PATH> \
+  --build-env devnet \
+  --gas-budget 100000000 \
+  --dry-run
+
+# 실제 배포 시
+sui client test-publish <PACKAGE_PATH> \
+  --build-env devnet \
+  --gas-budget 100000000
+```
+
+**참고**: 향후 Sui CLI가 new-style Move.toml 포맷으로 완전히 전환되면
+old-style `[addresses]` 섹션을 사용하는 기존 컨트랙트들의 마이그레이션이 필요하다.
+
+### 6.5 관련 문서
 
 - [NASUN_DEVNET_RESET_GUIDE.md](./NASUN_DEVNET_RESET_GUIDE.md) - Genesis 리셋 절차
 - [NASUN_DEVNET_OPERATIONS.md](./NASUN_DEVNET_OPERATIONS.md) - 운영 가이드
+- [EXECUTION_COMPLIANCE_RECORD.md](../../my_apps/nasun-monorepo/apps/baram/docs/EXECUTION_COMPLIANCE_RECORD.md) - Baram ECR 설계
 
 ---
 

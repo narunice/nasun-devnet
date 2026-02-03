@@ -106,7 +106,7 @@ Security expectations:
 | Native Token         | NSN (최소단위: SOE)               |
 | Total Supply         | 10,000,000,000 NSN (100억)        |
 | Consensus            | Narwhal/Bullshark (SUI default)   |
-| Validators           | 2 nodes (EC2 c6i.xlarge)          |
+| Validators           | 2 nodes (EC2 t3.large)            |
 | RPC Endpoint (HTTPS) | https://rpc.devnet.nasun.io       |
 | RPC Endpoint (HTTP)  | http://3.38.127.23:9000           |
 | Faucet (HTTPS)       | https://faucet.devnet.nasun.io    |
@@ -114,7 +114,7 @@ Security expectations:
 | Faucet Amount        | 100 NSN/요청 (20×5개 코인)        |
 | Explorer             | https://explorer.devnet.nasun.io  |
 | Epoch Duration       | 2시간 (7,200,000ms)               |
-| DB Pruning           | 50 epochs (~4일 보관)             |
+| DB Pruning           | num-epochs-to-retain: 50 (Validator는 SUI 코드가 aggressive로 override) |
 | Fork Source          | Sui mainnet v1.63.3 (2026-01-27)  |
 | zkLogin              | ✅ 지원 (prover-dev 호환)         |
 | Auto Recovery        | ✅ CloudWatch 알람 (양 노드)      |
@@ -227,7 +227,7 @@ DEFAULT_EPOCH_DURATION_MS: u64 = 7_200_000;        // 2 hours (V5)
 TOTAL_SUPPLY_NSN: u64 = 10_000_000_000_000_000_000;  // 10B NSN
 MIN_VALIDATOR_STAKE: u64 = 1_000_000_000;          // 1 NSN
 DEFAULT_GAS_PRICE: u64 = 1000;
-NUM_EPOCHS_TO_RETAIN: u64 = 50;                    // ~4 days pruning
+NUM_EPOCHS_TO_RETAIN: u64 = 50;                    // config value (Validator는 SUI가 aggressive로 override)
 ```
 
 ## Local Testing
@@ -367,10 +367,10 @@ Settings → Network → Custom RPC URL
 
 ## EC2 인프라 및 SSH 접속
 
-| 노드         | IP          | 역할                                | 인스턴스 타입 |
-| ------------ | ----------- | ----------------------------------- | ------------- |
-| nasun-node-1 | 3.38.127.23 | Validator + Fullnode (RPC) + Faucet | c6i.xlarge    |
-| nasun-node-2 | 3.38.76.85  | Validator                           | c6i.xlarge    |
+| 노드         | IP          | 역할                                | 인스턴스 타입 | EBS      |
+| ------------ | ----------- | ----------------------------------- | ------------- | -------- |
+| nasun-node-1 | 3.38.127.23 | Validator + Fullnode (RPC) + Faucet | t3.large      | 100GB gp3 |
+| nasun-node-2 | 3.38.76.85  | Validator                           | t3.large      | 100GB gp3 |
 
 ```bash
 # Node 1 (주 노드) 접속
@@ -438,7 +438,7 @@ logrotate 설정 (`/etc/logrotate.d/rsyslog`):
 디스크 모니터링:
 
 - `~/disk-monitor.sh` (매시간 실행)
-- 80% 초과 시 SNS 알림
+- 70% NOTICE / 80% WARNING / 90% CRITICAL 단계별 SNS 알림
 
 ## 2-Node Consensus Notes
 

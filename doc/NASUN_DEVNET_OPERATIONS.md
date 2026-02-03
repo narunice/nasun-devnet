@@ -71,8 +71,8 @@
 
 | 노드 | IP | 역할 | 인스턴스 타입 | Instance ID | 상태 |
 |------|-----|------|--------------|-------------|------|
-| nasun-node-1 | 3.38.127.23 | **Validator + Fullnode + Faucet + nginx** | c6i.xlarge | i-040cc444762741157 | ✅ 운영 중 |
-| nasun-node-2 | 3.38.76.85 | **Validator Only** | c6i.xlarge | i-049571787762752ba | ✅ 운영 중 |
+| nasun-node-1 | 3.38.127.23 | **Validator + Fullnode + Faucet + nginx** | t3.large | i-040cc444762741157 | ✅ 운영 중 |
+| nasun-node-2 | 3.38.76.85 | **Validator Only** | t3.large | i-049571787762752ba | ✅ 운영 중 |
 | nasun-node-3 | 52.78.117.96 | (중지됨) | t3.large | i-0385f4fe2c8b7bc81 | ⏹️ 중지 |
 
 > **아키텍처 변경 (2026-01-27 V6)**: 3-Node → 2-Node로 전환하여 비용 절감 (~$180/월 → ~$120/월).
@@ -89,18 +89,23 @@
 
 ### 2.2 스토리지
 
-| 노드 | EBS | 주요 디렉토리 | 현재 사용량 (2026-01-27) |
+| 노드 | EBS | 주요 디렉토리 | 현재 사용량 (2026-02-03) |
 |------|-----|--------------|-------------------------|
-| Node 1 | 48GB gp3 | `~/.sui/sui_config/authorities_db/`, `~/full_node_db/` | 16% (7.3GB) |
-| Node 2 | 48GB gp3 | `~/.sui/sui_config/authorities_db/` | 13% (5.9GB) |
+| Node 1 | **100GB gp3** | `~/.sui/sui_config/authorities_db/`, `~/full_node_db/` | 24% (~23GB) |
+| Node 2 | **100GB gp3** | `~/.sui/sui_config/authorities_db/` | 19% (~18GB) |
+
+> **EBS 확장 (2026-02-03)**: 48GB → 100GB. 디스크 100% 인시던트(5.10) 이후 무중단 확장 수행.
 
 **DB Pruning 설정** (현재 상태):
 ```yaml
 authority-store-pruning-config:
   num-latest-epoch-dbs-to-retain: 3    # 3개 epoch DB 유지
   epoch-db-pruning-period-secs: 3600   # 1시간마다 pruning
-  num-epochs-to-retain: 0              # 추가 epoch 보관 안함
+  num-epochs-to-retain: 50             # 50 epoch 보관 (2026-02-03 수정)
 ```
+
+> **주의**: Validator의 경우 SUI 코드가 `num-epochs-to-retain: 50`을 무시하고 aggressive pruner(0)로
+> 강제 리셋합니다. Fullnode는 설정값(50)을 유지합니다.
 
 - **Config 경로**: `~/.sui/sui_config/`
 
@@ -300,20 +305,32 @@ du -sh /home/ubuntu/* | sort -hr | head -10
 journalctl --disk-usage
 ```
 
-### 4.5 디스크 모니터링 스크립트 (2026-01-01 추가)
+### 4.5 디스크 모니터링 스크립트 (2026-01-01 추가, 2026-02-03 강화)
 
 양 노드에 `/home/ubuntu/disk-monitor.sh` 스크립트 설치:
 
 ```bash
 #!/bin/bash
-THRESHOLD=80
 USAGE=$(df / | tail -1 | awk '{print $5}' | sed 's/%//')
-if [ "$USAGE" -ge "$THRESHOLD" ]; then
-    echo "ALERT: Disk usage at ${USAGE}% on $(hostname)" | logger -t disk-monitor
-    aws sns publish --topic-arn arn:aws:sns:ap-northeast-2:150674276464:nasun-devnet-alerts \
-      --message "ALERT: Disk usage at ${USAGE}%" \
-      --subject "Nasun Devnet Disk Alert" 2>/dev/null || true
+HOSTNAME=$(hostname)
+
+if [ "$USAGE" -ge 90 ]; then
+    SUBJECT="CRITICAL: Nasun Devnet Disk ${USAGE}% - ${HOSTNAME}"
+    MESSAGE="CRITICAL: Disk usage at ${USAGE}% on ${HOSTNAME}. Immediate action required - services may crash."
+elif [ "$USAGE" -ge 80 ]; then
+    SUBJECT="WARNING: Nasun Devnet Disk ${USAGE}% - ${HOSTNAME}"
+    MESSAGE="WARNING: Disk usage at ${USAGE}% on ${HOSTNAME}. Consider expanding EBS or cleaning up data."
+elif [ "$USAGE" -ge 70 ]; then
+    SUBJECT="NOTICE: Nasun Devnet Disk ${USAGE}% - ${HOSTNAME}"
+    MESSAGE="NOTICE: Disk usage at ${USAGE}% on ${HOSTNAME}. Monitor growth trend."
+else
+    exit 0
 fi
+
+echo "$MESSAGE" | logger -t disk-monitor
+aws sns publish --topic-arn arn:aws:sns:ap-northeast-2:150674276464:nasun-devnet-alerts \
+  --message "$MESSAGE" \
+  --subject "$SUBJECT" 2>/dev/null || true
 ```
 
 **Cron 설정** (매시간 실행):
@@ -331,7 +348,7 @@ fi
 
 **알림 트리거**:
 - EC2 Auto Recovery (인스턴스 상태 체크 실패)
-- 디스크 사용량 80% 초과
+- 디스크 사용량 70% NOTICE / 80% WARNING / 90% CRITICAL (2026-02-03 단계별 강화)
 - 체크포인트 5분 이상 멈춤 (합의 장애)
 
 ### 4.7 체크포인트 모니터링 및 자동 복구 (2026-01-01 추가)
@@ -653,6 +670,65 @@ Node 3 (t3.large, 8GB RAM)이 Fullnode 운영에 메모리 부족으로 반복 �
 | Faucet (https://faucet.devnet.nasun.io) | ✅ 정상 |
 | 디스크 사용량 | Node 1: 16%, Node 2: 13% |
 
+### 5.10 디스크 100% - DB Pruning 미작동 (2026-02-03)
+
+**증상**:
+- 네트워크 disconnected 상태 (RPC 502, 서비스 크래시)
+- Node 1: `/dev/root` 48GB 중 48GB 사용 (100%)
+- Validator, Fullnode 모두 `signal=ABRT` (core-dump)로 crash-looping
+- SSH 접속 불가 (Security Group IP 제한)
+
+**근본 원인**:
+1. `num-epochs-to-retain: 0`으로 설정되어 있었지만, 이 값은 가장 공격적인 pruning이 아닌
+   **모든 epoch 보관**을 의미할 수 있음 (SUI 버전에 따라 동작 다름)
+2. 7일간 DB가 무제한 성장: authorities_db 18GB + full_node_db 24GB = 42GB
+3. 로그 및 OS까지 합산하여 48GB 디스크 100% 도달
+4. SSH는 `125.134.72.215/32`만 허용되어 현재 IP(`115.22.178.82`)에서 접속 불가
+
+**DB 크기 분석 (장애 시점)**:
+| 디렉토리 | 크기 | 설명 |
+|----------|------|------|
+| `authorities_db/live/store` | 9.7GB | Validator object store |
+| `authorities_db/live/checkpoints` | 2.7GB | Validator checkpoint data |
+| `full_node_db/live/store` | ~15GB | Fullnode object store |
+| `full_node_db/live/checkpoints` | ~7GB | Fullnode checkpoint data |
+| `/var/log` + journal | ~1.5GB | 로그 |
+
+**복구 절차**:
+1. AWS CLI로 Security Group에 현재 IP SSH 허용 추가
+2. SSH 접속 후 서비스 중지
+3. `full_node_db` 삭제 (24GB 확보)
+4. Pruning 설정 수정: `num-epochs-to-retain: 0` → `50` (양쪽 노드)
+5. 서비스 재시작 (Validator, Fullnode)
+6. Fullnode DB genesis부터 재구축 대기
+7. Faucet 재시작 (Fullnode 동기화 완료 후)
+
+**추가 조치 (재발 방지)**:
+1. **EBS 볼륨 확장**: 양쪽 노드 50GB → 100GB (무중단, `modify-volume` + `growpart` + `resize2fs`)
+2. **디스크 모니터링 강화**: 80% 단일 임계값 → 70% NOTICE / 80% WARNING / 90% CRITICAL
+3. **Pruning 설정 수정 확인**: Validator는 SUI 코드가 aggressive(0)로 override, Fullnode는 50 유지
+
+**SUI Pruning 동작 참고**:
+```
+# Validator 시작 시 로그:
+WARN sui_core::authority::authority_store_pruner:
+  Using objects pruner with num_epochs_to_retain = 50 can lead to performance issues
+WARN sui_core::authority::authority_store_pruner:
+  Resetting to aggressive pruner.
+
+# Fullnode 시작 시 로그:
+WARN sui_core::authority::authority_store_pruner:
+  Consider using an aggressive pruner (num_epochs_to_retain = 0)
+```
+Validator는 config 값을 무시하고 aggressive pruning으로 강제 전환됨.
+Fullnode는 경고만 표시하고 설정값(50)을 유지.
+
+**교훈**:
+- 48GB는 Validator + Fullnode 동시 운영에 불충분
+- Pruning 설정만으로는 디스크 안전을 보장할 수 없음 (충분한 디스크 + 모니터링 필수)
+- Security Group SSH IP를 동적 IP 환경에서 관리할 대책 필요
+- 디스크 장애 시 full_node_db 삭제로 대량 공간 확보 가능 (Fullnode는 자동 재구축)
+
 ---
 
 ## 6. 모니터링 명령어
@@ -879,7 +955,7 @@ packages/devnet-config/
 다음 Genesis 리셋(V7) 시 비용 절감을 위해 ARM 아키텍처로 전환 예정.
 
 **전환 이유**:
-- Graviton (c7g.xlarge)은 x86 (c6i.xlarge) 대비 약 **20% 저렴**
+- Graviton (c7g.xlarge)은 x86 (현재 t3.large) 대비 성능/비용 우위
 - Sui는 ARM (aarch64) 공식 지원
 - 월 비용 ~$198 (현재 ~$248에서 $50 절감)
 
@@ -889,7 +965,7 @@ packages/devnet-config/
 3. Genesis 리셋 (V7)
 4. ARM 바이너리 배포 및 서비스 시작
 5. 스마트 컨트랙트 재배포
-6. 기존 c6i.xlarge 인스턴스 종료
+6. 기존 t3.large 인스턴스 종료
 
 **Move 스마트 컨트랙트**:
 - Move 바이트코드는 플랫폼 독립적이므로 재빌드 불필요
@@ -898,7 +974,7 @@ packages/devnet-config/
 **예상 비용 절감**:
 | 항목 | 현재 (x86) | V7 후 (ARM) |
 |------|-----------|-------------|
-| 인스턴스 타입 | c6i.xlarge | c7g.xlarge |
+| 인스턴스 타입 | t3.large | c7g.xlarge |
 | 월 비용 (2대) | ~$248 | ~$198 |
 | 절감액 | - | **~$50/월** |
 
