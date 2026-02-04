@@ -1,10 +1,10 @@
 # Nasun Devnet 운영 가이드
 
-**Version**: 4.1.0
+**Version**: 5.0.0
 **Created**: 2025-12-23
-**Updated**: 2026-01-27
+**Updated**: 2026-02-04
 **Author**: Claude Code
-**Status**: 운영 중 (V6, 2-Node)
+**Status**: 운영 중 (V7, 2-Node)
 
 ---
 
@@ -29,7 +29,7 @@
 | 항목 | 값 |
 |------|-----|
 | **Network Name** | Nasun Devnet |
-| **Chain ID** | `12bf3808` (2026-01-27 V6 리셋) |
+| **Chain ID** | `272218f1` (2026-02-04 V7 리셋) |
 | **Fork Source** | Sui mainnet v1.63.3 |
 | **Native Token** | NSN (최소단위: SOE) |
 | **Consensus** | Narwhal/Bullshark |
@@ -61,23 +61,25 @@
 | **V5 리셋** | 2시간 epoch, NSN 토큰, DB pruning | 2026-01-17 |
 | **3-Node 전환** | Fullnode/Faucet 전용 Node 3 추가, Node 1 Validator 전용화 | 2026-01-23 |
 | **V5 복구** | Execution engine halt → authorities_db 초기화 복구 | 2026-01-23 |
-| **V6 리셋** | 2-Node 아키텍처로 전환, 전체 Genesis 리셋 | **2026-01-27** |
+| **V6 리셋** | 2-Node 아키텍처로 전환, 전체 Genesis 리셋 | 2026-01-27 |
+| **디스크 인시던트** | EBS 48GB→100GB 확장, 3-tier 모니터링 | 2026-02-03 |
+| **V7 리셋** | Node 1 t3.xlarge 업그레이드, fullnode sync 문제 해결 | **2026-02-04** |
 
 ---
 
 ## 2. 인프라 현황
 
-### 2.1 EC2 인스턴스 (2-Node 아키텍처, V6)
+### 2.1 EC2 인스턴스 (2-Node 아키텍처, V7)
 
 | 노드 | IP | 역할 | 인스턴스 타입 | Instance ID | 상태 |
 |------|-----|------|--------------|-------------|------|
-| nasun-node-1 | 3.38.127.23 | **Validator + Fullnode + Faucet + nginx** | t3.large | i-040cc444762741157 | ✅ 운영 중 |
-| nasun-node-2 | 3.38.76.85 | **Validator Only** | t3.large | i-049571787762752ba | ✅ 운영 중 |
+| nasun-node-1 | 3.38.127.23 | **Validator + Fullnode + Faucet + nginx** | **t3.xlarge (16GB)** | i-040cc444762741157 | ✅ 운영 중 |
+| nasun-node-2 | 3.38.76.85 | **Validator Only** | t3.large (8GB) | i-049571787762752ba | ✅ 운영 중 |
 | nasun-node-3 | 52.78.117.96 | (중지됨) | t3.large | i-0385f4fe2c8b7bc81 | ⏹️ 중지 |
 
-> **아키텍처 변경 (2026-01-27 V6)**: 3-Node → 2-Node로 전환하여 비용 절감 (~$180/월 → ~$120/월).
-> Node 3을 중지하고 Node 1에서 Validator + Fullnode + Faucet + nginx를 모두 운영.
-> 이전 3-Node 아키텍처에서 Node 3 (t3.large, 8GB RAM)가 메모리 부족으로 반복 크래시되던 문제 해결.
+> **인스턴스 업그레이드 (2026-02-04 V7)**: Node 1을 t3.large(8GB) → t3.xlarge(16GB)로 업그레이드.
+> Fullnode + Validator + Faucet을 동시에 운영하기 위한 메모리 확보.
+> t3a (AMD)는 ap-northeast-2b AZ에서 미지원하여 t3 (Intel) 유지.
 
 **Auto Recovery 설정** (2026-01-01):
 | 알람 이름 | 인스턴스 ID | 상태 |
@@ -91,10 +93,10 @@
 
 | 노드 | EBS | 주요 디렉토리 | 현재 사용량 (2026-02-03) |
 |------|-----|--------------|-------------------------|
-| Node 1 | **100GB gp3** | `~/.sui/sui_config/authorities_db/`, `~/full_node_db/` | 24% (~23GB) |
-| Node 2 | **100GB gp3** | `~/.sui/sui_config/authorities_db/` | 19% (~18GB) |
+| Node 1 | **100GB gp3** | `~/.sui/sui_config/authorities_db/`, `~/full_node_db/` | 6% (~5.7GB) |
+| Node 2 | **100GB gp3** | `~/.sui/sui_config/authorities_db/` | 6% (~5.3GB) |
 
-> **EBS 확장 (2026-02-03)**: 48GB → 100GB. 디스크 100% 인시던트(5.10) 이후 무중단 확장 수행.
+> **V7 리셋 (2026-02-04)**: 전체 데이터 초기화. 디스크 사용량 6%로 리셋됨.
 
 **DB Pruning 설정** (현재 상태):
 ```yaml

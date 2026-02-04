@@ -1,8 +1,8 @@
 # Nasun Devnet Post-Reset Checklist
 
-**Version**: 3.1.0
+**Version**: 4.0.0
 **Created**: 2026-01-17
-**Updated**: 2026-01-27
+**Updated**: 2026-02-04
 **Author**: Claude Code
 **Purpose**: Devnet 리셋 후 반드시 수행해야 할 작업 목록
 
@@ -32,14 +32,14 @@
 - 실행 엔진 장애 (Execution halt, SendError)
 - 심각한 버그 발생
 
-### 1.2 현재 노드 아키텍처 (2-Node, V6)
+### 1.2 현재 노드 아키텍처 (2-Node, V7)
 
-| Node | IP | Role | Services |
-|------|-----|------|----------|
-| Node 1 | 3.38.127.23 | Validator + RPC + Faucet | nasun-validator, nasun-fullnode, nasun-faucet, nginx |
-| Node 2 | 3.38.76.85 | Validator | nasun-validator |
+| Node | IP | Role | Services | Instance |
+|------|-----|------|----------|----------|
+| Node 1 | 3.38.127.23 | Validator + RPC + Faucet | nasun-validator, nasun-fullnode, nasun-faucet, nginx | t3.xlarge (16GB) |
+| Node 2 | 3.38.76.85 | Validator | nasun-validator | t3.large (8GB) |
 
-> **참고**: V6부터 2-node 아키텍처 (월 비용 $180 → $120 절감)
+> **참고**: V7에서 Node 1을 t3.xlarge (16GB)로 업그레이드
 > HTTPS 엔드포인트: `rpc.devnet.nasun.io`, `faucet.devnet.nasun.io` (Node 1 nginx)
 
 ### 1.3 리셋 후 복구가 필요한 항목

@@ -102,11 +102,11 @@ Security expectations:
 | Spec                 | Value                             |
 | -------------------- | --------------------------------- |
 | Network Name         | Nasun Devnet                      |
-| Chain ID             | `12bf3808` (2026-01-27 V6 리셋)   |
+| Chain ID             | `272218f1` (2026-02-04 V7 리셋)   |
 | Native Token         | NSN (최소단위: SOE)               |
 | Total Supply         | 10,000,000,000 NSN (100억)        |
 | Consensus            | Narwhal/Bullshark (SUI default)   |
-| Validators           | 2 nodes (EC2 t3.large)            |
+| Validators           | 2 nodes (Node 1: t3.xlarge, Node 2: t3.large) |
 | RPC Endpoint (HTTPS) | https://rpc.devnet.nasun.io       |
 | RPC Endpoint (HTTP)  | http://3.38.127.23:9000           |
 | Faucet (HTTPS)       | https://faucet.devnet.nasun.io    |
@@ -115,7 +115,7 @@ Security expectations:
 | Explorer             | https://explorer.devnet.nasun.io  |
 | Epoch Duration       | 2시간 (7,200,000ms)               |
 | DB Pruning           | num-epochs-to-retain: 50 (Validator는 SUI 코드가 aggressive로 override) |
-| Fork Source          | Sui mainnet v1.63.3 (2026-01-27)  |
+| Fork Source          | Sui mainnet v1.63.3 (2026-02-04)  |
 | zkLogin              | ✅ 지원 (prover-dev 호환)         |
 | Auto Recovery        | ✅ CloudWatch 알람 (양 노드)      |
 | SNS Alerts           | nasun-devnet-alerts → naru@nasun.io |
@@ -369,8 +369,8 @@ Settings → Network → Custom RPC URL
 
 | 노드         | IP          | 역할                                | 인스턴스 타입 | EBS      |
 | ------------ | ----------- | ----------------------------------- | ------------- | -------- |
-| nasun-node-1 | 3.38.127.23 | Validator + Fullnode (RPC) + Faucet | t3.large      | 100GB gp3 |
-| nasun-node-2 | 3.38.76.85  | Validator                           | t3.large      | 100GB gp3 |
+| nasun-node-1 | 3.38.127.23 | Validator + Fullnode (RPC) + Faucet | t3.xlarge (16GB) | 100GB gp3 |
+| nasun-node-2 | 3.38.76.85  | Validator                           | t3.large (8GB)   | 100GB gp3 |
 
 ```bash
 # Node 1 (주 노드) 접속
@@ -711,10 +711,50 @@ cargo build --release
 
 ---
 
+## Nasun Devnet V7 리셋 (2026-02-04)
+
+**작업일**: 2026-02-04
+**상태**: ✅ 네트워크 운영 중
+**Fork 소스**: Sui mainnet v1.63.3 (바이너리 재빌드 없음, V6과 동일)
+
+### 리셋 목적
+
+V6 fullnode 동기화 문제(state execution lag) 해결 및 Node 1 메모리 업그레이드:
+- Fullnode state execution 2.7M 체크포인트 중 336K만 실행 (캐치업 ~16시간 예상)
+- Node 1을 t3.xlarge (16GB)로 업그레이드하여 메모리 부족 방지
+- 새 genesis로 깨끗한 상태에서 재시작
+
+### V7 변경 사항
+
+| 항목 | V6 (이전) | V7 (현재) |
+|------|-----------|-----------|
+| Chain ID | `12bf3808` | `272218f1` |
+| Node 1 인스턴스 | t3.large (8GB) | **t3.xlarge (16GB)** |
+| Node 2 인스턴스 | t3.large (8GB) | t3.large (8GB, 변경 없음) |
+| 월 비용 | ~$143.8 | **~$197.9** |
+| 아키텍처 | 2-node | 2-node (변경 없음) |
+
+### 배포된 컨트랙트 (V7)
+
+> V7은 새 genesis로 리셋되어 모든 컨트랙트 재배포 필요.
+
+| 컨트랙트 | 상태 |
+|----------|------|
+| 모든 컨트랙트 | ⏳ 재배포 대기 |
+
+### 인시던트 노트
+
+- **t3a 인스턴스 불가**: ap-northeast-2b AZ에서 t3a (AMD) 인스턴스를 지원하지 않아 t3.xlarge (Intel)로 대체
+- **YAML 중복 필드**: genesis 생성 후 pruning config 추가 시 `authority-store-pruning-config` 중복으로 node 크래시 → 중복 섹션 제거로 해결
+- **Fullnode db-path**: 상대경로로 생성되어 PermissionDenied → 절대경로로 수정
+- **Validator 미재시작**: 인스턴스 재부팅 후 V6 데이터로 자동시작된 validator를 수동 재시작 필요
+
+---
+
 ## Nasun Devnet V6 리셋 (2026-01-27)
 
 **작업일**: 2026-01-27
-**상태**: ✅ 네트워크 운영 중
+**상태**: V7으로 대체됨
 **Fork 소스**: Sui mainnet v1.63.3
 
 ### 리셋 목적

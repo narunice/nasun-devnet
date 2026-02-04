@@ -1,8 +1,8 @@
 # Nasun Devnet Network Reset Guide
 
-**Version**: 4.1
-**Last Updated**: 2026-01-27
-**Current Network**: V6 (Chain ID: `12bf3808`)
+**Version**: 5.0
+**Last Updated**: 2026-02-04
+**Current Network**: V7 (Chain ID: `272218f1`)
 
 ---
 
@@ -15,11 +15,11 @@ This guide documents the network reset procedure for Nasun Devnet. A reset is re
 
 ---
 
-## Current Network Status (V6)
+## Current Network Status (V7)
 
 | Item | Value |
 |------|-------|
-| **Chain ID** | `12bf3808` |
+| **Chain ID** | `272218f1` |
 | **Fork Source** | Sui mainnet v1.63.3 |
 | **Native Token** | NSN (min unit: SOE) |
 | **Epoch Duration** | 2 hours (7,200,000ms) |
@@ -30,10 +30,10 @@ This guide documents the network reset procedure for Nasun Devnet. A reset is re
 
 | Node | IP | Role | Instance |
 |------|-----|------|----------|
-| Node 1 | 3.38.127.23 | Validator + Fullnode + Faucet + nginx | c6i.xlarge |
-| Node 2 | 3.38.76.85 | Validator | c6i.xlarge |
+| Node 1 | 3.38.127.23 | Validator + Fullnode + Faucet + nginx | t3.xlarge (16GB) |
+| Node 2 | 3.38.76.85 | Validator | t3.large (8GB) |
 
-> **Note**: V6 uses 2-node architecture for cost reduction (~$60/month savings)
+> **Note**: V7 upgraded Node 1 to t3.xlarge (16GB) for memory headroom
 
 ---
 
@@ -632,6 +632,7 @@ ln -sf ~/.nasun/nasun_config/sui.keystore ~/.sui/sui_config/sui.keystore
 | V5 | 2026-01-17 | v1.63.3 mainnet | `56c8b101` | 2-hour epoch, NSN token, DB pruning |
 | V5 Recovery | 2026-01-23 | v1.63.3 mainnet | `56c8b101` | Execution halt recovery (DB wipe, 3-node arch) |
 | V6 | 2026-01-27 | v1.63.3 mainnet | `12bf3808` | 2-node arch (cost reduction), consensus reset |
+| V7 | 2026-02-04 | v1.63.3 mainnet | `272218f1` | Node 1 t3.xlarge upgrade, fullnode sync fix |
 
 ---
 
