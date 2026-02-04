@@ -1,6 +1,6 @@
 # Nasun Devnet 운영 가이드
 
-**Version**: 5.0.0
+**Version**: 5.1.0
 **Created**: 2025-12-23
 **Updated**: 2026-02-04
 **Author**: Claude Code
@@ -866,25 +866,34 @@ git add . && git commit -m "chore: update devnet IDs for V7"
 
 ```json
 {
-  "version": "V6",
-  "lastUpdated": "2026-01-27",
+  "version": "V7",
+  "lastUpdated": "2026-02-04",
+  "admin": "0xe1c4c90b...",
   "network": {
-    "chainId": "12bf3808",
-    "rpcUrl": "https://rpc.devnet.nasun.io",
-    "faucetUrl": "https://faucet.devnet.nasun.io"
+    "chainId": "272218f1",
+    "rpcUrl": "http://3.38.127.23:9000",
+    "faucetUrl": "https://faucet.devnet.nasun.io",
+    "explorerUrl": "https://explorer.nasun.io/devnet"
   },
-  "tokens": {
-    "packageId": "0x10748ed4...",
-    "tokenFaucet": "0x04aa4144...",
-    "claimRecord": "0x8b9e8545...",
-    "nbtcType": "0x10748ed4...::nbtc::NBTC",
-    "nusdcType": "0x10748ed4...::nusdc::NUSDC"
+  "tokens": { "packageId": "...", "tokenFaucet": "...", "claimRecord": "...", "upgradeCap": "..." },
+  "deepbook": { "tokenPackageId": "...", "packageId": "...", "registry": "...", "adminCap": "..." },
+  "prediction": { "packageId": "...", "globalState": "...", "adminCap": "...", "upgradeCap": "..." },
+  "lottery": { "packageId": "...", "registry": "...", "adminCap": "...", "upgradeCap": "..." },
+  "governance": { "packageId": "...", "dashboard": "...", "adminCap": "...", "votingPowerOracle": "...", "certificateRegistry": "...", "proposalTypeRegistry": "..." },
+  "baram": {
+    "packageId": "...", "registry": "...", "upgradeCap": "...",
+    "executorPackageId": "...", "executorRegistry": "...", "executorAdminCap": "...", "executorUpgradeCap": "...",
+    "stakingConfig": "...", "stakingRegistry": "...", "stakingAdminCap": "...", "tierRegistry": "...",
+    "processedRequests": "...",
+    "attestationPackageId": "...", "attestationRegistry": "...", "attestationAdminCap": "...", "attestationUpgradeCap": "...",
+    "compliancePackageId": "...", "complianceRegistry": "...", "complianceAdminCap": "...", "complianceUpgradeCap": "..."
   },
-  "deepbook": { ... },
-  "prediction": { ... },
-  "lottery": { ... },
-  "governance": { ... },
-  "baram": { ... }
+  "pools": { "nbtcNusdc": "...", "nsnNusdc": "..." },
+  "oracle": { "packageId": "...", "registry": "...", "adminCap": "...", "upgradeCap": "..." },
+  "lending": { "packageId": "...", "pool": "...", "adminCap": "...", "upgradeCap": "..." },
+  "margin": { "packageId": "...", "registry": "...", "upgradeCap": "..." },
+  "perp": { "packageId": "...", "btcMarket": "...", "upgradeCap": "..." },
+  "nsa": { "packageId": "...", "upgradeCap": "..." }
 }
 ```
 
@@ -933,13 +942,13 @@ packages/devnet-config/
 | `nusdc.move` | NUSDC (6 decimals) - Nasun Network Test USDC |
 | `faucet.move` | 통합 TokenFaucet (24시간 cooldown rate limiting) |
 
-**V6 배포 ID**:
+**V7 배포 ID**:
 | 항목 | Object ID |
 |------|-----------|
-| Package | `0x10748ed4f5063ca4a564fdfecc289954d14efa1a209e7292dcc18d65b2cb4017` |
-| TokenFaucet | `0x04aa41442a9b812d29bb578aa82358d2b9e678240814368e32d82efa79669e14` |
-| ClaimRecord | `0x8b9e854509c950d01ccd37190ba967e2de2197908f5c164f7cc193714faac4a8` |
-| UpgradeCap | `0x2017d606c566ff13cbaf23bf18b5e413b95bb9bcd333c2f413878e7ddddf2a87` |
+| Package | `0x96adf476d488ffb588d0bfdb5c422355f065386a2e7124e66746fb7078816731` |
+| TokenFaucet | `0x7cc75ad1f00f65589074ba9a8f0ad4922b2be3bfef31c22c66d137bc8dbced92` |
+| ClaimRecord | `0x6416304b56cd61238fe552ddb3d07ecc4c12c749fc7038b04d20de3e52953fe1` |
+| UpgradeCap | `0xef52338fb8b2f564938f830ae2822818dfce49491508d95bcc85c0e3e7ddf269` |
 
 **Devnet 리셋 후 업데이트 필요 파일**:
 - `packages/devnet-tokens/Move.toml` - published-at, addresses 섹션
@@ -948,78 +957,97 @@ packages/devnet-config/
 > **배경**: 기존에 Pado 앱과 Baram 앱이 각각 별도의 NUSDC를 사용하여 혼란이 발생.
 > 이를 해결하기 위해 모든 앱에서 공용으로 사용할 수 있는 통합 토큰 패키지 생성.
 
+### 8.7 V7 스마트 컨트랙트 배포 방법론
+
+V7에서 확립된 15개 컨트랙트 배포 방법론입니다.
+
+**배포 명령어 패턴**:
+
+| 유형 | 명령어 |
+|------|--------|
+| 독립 패키지 (의존성 없음) | `sui client test-publish --build-env devnet --gas-budget 500000000` |
+| devnet_tokens 의존 패키지 | `sui client test-publish --build-env devnet --pubfile-path /home/naru/my_apps/nasun-monorepo/Pub.devnet.toml --gas-budget 500000000` |
+
+> **주의**: `--with-unpublished-dependencies`를 이미 배포된 의존성에 사용하면 안 됩니다.
+> 이 플래그는 의존성을 번들링하여 별도의 타입을 생성하므로 타입 호환성이 깨집니다.
+> 대신 `--pubfile-path`로 공유 `Pub.devnet.toml` 파일을 지정하세요.
+
+**3-tier 배포 순서**:
+
+| Tier | 컨트랙트 | 의존성 |
+|------|---------|--------|
+| **Tier 1** (독립) | devnet_tokens, deepbook_token, deepbook, governance, nsa, baram_executor, baram_attestation, baram_compliance | 없음 |
+| **Tier 2** (devnet_tokens 의존) | prediction, lottery, oracle, lending, baram | devnet_tokens |
+| **Tier 3** (다중 의존) | margin, perp | devnet_tokens + 기타 |
+
+**공유 Pub.devnet.toml**:
+
+`test-publish` 명령은 배포 시 자동으로 `Pub.devnet.toml`에 패키지 엔트리를 추가합니다.
+`--pubfile-path`로 모노레포 루트의 공유 파일을 지정하면, 이전 Tier에서 배포된 패키지의
+주소를 후속 배포에서 자동으로 참조할 수 있습니다.
+
+**배포 후 추가 생성이 필요한 공유 객체 (Post-deploy)**:
+
+일부 컨트랙트는 `init()` 함수에서 모든 공유 객체를 생성하지 않습니다.
+다음 객체들은 배포 후 별도의 트랜잭션으로 생성해야 합니다:
+
+| 객체 | 생성 방법 | 비고 |
+|------|----------|------|
+| ProposalTypeRegistry | `governance::proposal::init_type_registry` | AdminCap 필요 |
+| TierRegistry | `baram_executor::executor_tier::create_tier_registry` | AdminCap 필요 |
+| BTC PerpMarket | `pado_perp::perpetual::create_market` | AdminCap 필요 |
+| CertificateRegistry | PTB: `create_registry` + `share_registry` | 2-step PTB |
+| VotingPowerOracle | PTB: `create_oracle` + `share_oracle` | Ed25519 공개키 필요 |
+| NBTC/NUSDC Pool | `deepbook::pool::create_pool_admin` | 토큰 타입 인자 필요 |
+| NSN/NUSDC Pool | `deepbook::pool::create_pool_admin` | 토큰 타입 인자 필요 |
+
 ---
 
 ## 9. 향후 계획
 
-### 9.1 V7 리셋 시 Graviton (ARM) 전환 계획
+### 9.1 Graviton (ARM) 전환 계획
 
-다음 Genesis 리셋(V7) 시 비용 절감을 위해 ARM 아키텍처로 전환 예정.
+향후 리셋(V8+) 시 비용 절감을 위해 ARM 아키텍처로 전환 검토.
+
+> **V7 상황**: V7은 Node 1을 t3.large → t3.xlarge로 업그레이드하여 메모리 문제를 해결했으나,
+> ARM 전환은 수행하지 않았습니다 (t3a가 ap-northeast-2b AZ에서 미지원, Graviton은 별도 인스턴스 생성 필요).
 
 **전환 이유**:
-- Graviton (c7g.xlarge)은 x86 (현재 t3.large) 대비 성능/비용 우위
+- Graviton (c7g.xlarge)은 x86 (현재 t3.xlarge) 대비 성능/비용 우위
 - Sui는 ARM (aarch64) 공식 지원
-- 월 비용 ~$198 (현재 ~$248에서 $50 절감)
-
-**전환 작업**:
-1. Sui ARM 바이너리 빌드 (`--target aarch64-unknown-linux-gnu`)
-2. c7g.xlarge 인스턴스 2대 생성
-3. Genesis 리셋 (V7)
-4. ARM 바이너리 배포 및 서비스 시작
-5. 스마트 컨트랙트 재배포
-6. 기존 t3.large 인스턴스 종료
+- 월 비용 절감 가능
 
 **Move 스마트 컨트랙트**:
 - Move 바이트코드는 플랫폼 독립적이므로 재빌드 불필요
 - 로컬 개발 환경 (x86)과 서버 (ARM) 아키텍처 차이는 개발에 영향 없음
 
-**예상 비용 절감**:
-| 항목 | 현재 (x86) | V7 후 (ARM) |
-|------|-----------|-------------|
-| 인스턴스 타입 | t3.large | c7g.xlarge |
-| 월 비용 (2대) | ~$248 | ~$198 |
-| 절감액 | - | **~$50/월** |
+### 9.2 Compute Savings Plan 적용
 
-### 9.2 V7 후 Compute Savings Plan 적용
-
-V7 Graviton 전환 완료 후, **Compute Savings Plan** (1년 No Upfront)을 적용하여 추가 비용 절감.
+인스턴스 타입이 안정화된 후, **Compute Savings Plan** (1년 No Upfront)을 적용하여 추가 비용 절감.
 
 **Savings Plan 선택 이유**:
 - Reserved Instance보다 유연함 (리전, 인스턴스 패밀리 변경 가능)
 - EC2, Fargate, Lambda 모두 적용
 - 인스턴스 수가 아닌 시간당 사용액($) 기준 약정
 
-**예상 최종 비용**:
-| 단계 | 월 비용 | 절감률 |
-|------|---------|--------|
-| 현재 (x86 On-Demand) | ~$248 | - |
-| V7 후 (ARM On-Demand) | ~$198 | 20% |
-| V7 + Savings Plan | **~$160** | **35%** |
+> **현재 상태**: V7에서 Node 1이 t3.xlarge (16GB)로 변경되어 인스턴스 구성이 안정화됨.
+> ARM 전환 여부를 결정한 후 Savings Plan 구매 권장.
 
-> **주의**: 현재는 V7 전환 예정이므로 c6i 인스턴스에 대한 Savings Plan 구매 보류.
-> V7 완료 후 c7g.xlarge 기준으로 Compute Savings Plan 1년 No Upfront 구매 권장.
+### 9.3 Faucet 설정
 
-### 9.3 V7 Faucet 설정 수정
+V7에서 NSN faucet 설정:
 
-V6에서 NSN faucet이 500 NSN을 지급하는 문제 수정 (목표: 100 NSN/요청).
-
-**현재 V6 설정 (문제)**:
 ```bash
 # /etc/systemd/system/nasun-faucet.service
 ExecStart=/home/ubuntu/sui-faucet --host-ip 0.0.0.0 --port 5003 --amount 100000000000
 # --amount 100 NSN × --num-coins 5 (기본값) = 500 NSN 총
 ```
 
-**V7 수정 설정**:
-```bash
-# 20 NSN × 5 coins = 100 NSN 총
-ExecStart=/home/ubuntu/sui-faucet --host-ip 0.0.0.0 --port 5003 --amount 20000000000
-```
-
 | 버전 | 설정 | 결과 |
 |------|------|------|
-| V6 (현재) | `--amount 100000000000` | 500 NSN (100×5) |
-| V7 (수정) | `--amount 20000000000` | **100 NSN (20×5)** |
+| V7 (현재) | `--amount 100000000000` | 500 NSN (100×5) |
+
+> **참고**: 필요 시 `--amount 20000000000`으로 변경하여 100 NSN (20×5)으로 줄일 수 있음.
 
 ---
 
@@ -1035,3 +1063,5 @@ ExecStart=/home/ubuntu/sui-faucet --host-ip 0.0.0.0 --port 5003 --amount 2000000
 | 3.0.0 | 2026-01-23 | 3-Node 아키텍처 전환 (Node 3 추가), V5 execution halt 복구 사례, 서비스 배치/엔드포인트 업데이트 | Claude Code |
 | 4.0.0 | 2026-01-27 | **V6 리셋 및 2-Node 전환** (Chain ID: 12bf3808), Node 3 중지, Node 1에서 Fullnode/Faucet/nginx 통합 운영, 비용 절감 (~$60/월), 전체 컨트랙트 재배포 | Claude Code |
 | 4.1.0 | 2026-01-27 | **중앙화된 ID 관리 시스템 도입** (@nasun/devnet-config), Section 8 추가, devnet 리셋 워크플로우 단순화 (10+ 파일 → 1개 JSON) | Claude Code |
+| 5.0.0 | 2026-02-04 | **V7 리셋** (Chain ID: 272218f1), Node 1 t3.xlarge(16GB) 업그레이드, 15개 컨트랙트 3-tier 배포, 디스크 100% 인시던트(EBS 100GB 확장) | Claude Code |
+| 5.1.0 | 2026-02-04 | V7 배포 방법론 문서화 (Section 8.7), `test-publish --pubfile-path` 패턴, 3-tier 배포 순서, post-deploy 공유 객체 생성 절차, devnet-ids.json V7 구조 반영 | Claude Code |

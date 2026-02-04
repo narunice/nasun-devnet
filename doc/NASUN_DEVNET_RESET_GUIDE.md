@@ -1,6 +1,6 @@
 # Nasun Devnet Network Reset Guide
 
-**Version**: 5.0
+**Version**: 5.1
 **Last Updated**: 2026-02-04
 **Current Network**: V7 (Chain ID: `272218f1`)
 
@@ -41,16 +41,25 @@ This guide documents the network reset procedure for Nasun Devnet. A reset is re
 
 ### 1. Current Contract Inventory
 
-Record all deployed contracts before reset:
+Record all deployed contracts before reset (V7: 15 packages):
 
-| Contract | Package ID | Notes |
-|----------|------------|-------|
-| Devnet Tokens | | 통합 NBTC, NUSDC + Faucet (packages/devnet-tokens) |
-| DeepBook V3 | | CLOB for trading |
-| Prediction Market | | Binary prediction |
-| Governance | | Proposal (fee-based) + Poll (sponsored) 투표 시스템 |
-| Baram | | AI Settlement Layer |
-| Baram Executor | | TEE Executor Registry |
+| Tier | Contract | Directory |
+|------|----------|-----------|
+| 1 | Devnet Tokens | `packages/devnet-tokens` |
+| 1 | DeepBook Token | `apps/pado/deepbookv3/packages/token` |
+| 1 | DeepBook V3 | `apps/pado/deepbookv3/packages/deepbook` |
+| 1 | Governance | `apps/nasun-website/contracts/governance` |
+| 1 | NSA | `apps/pado/contracts-nsa` |
+| 1 | Baram Executor | `apps/baram/contracts-executor` |
+| 1 | Baram Attestation | `apps/baram/contracts-attestation` |
+| 1 | Baram Compliance | `apps/baram/contracts-compliance` |
+| 2 | Prediction Market | `apps/pado/contracts-prediction` |
+| 2 | Lottery | `apps/pado/contracts-lottery` |
+| 2 | Oracle | `apps/pado/contracts-oracle` |
+| 2 | Lending | `apps/pado/contracts-lending` |
+| 2 | Baram | `apps/baram/contracts` |
+| 3 | Margin | `apps/pado/contracts-margin` |
+| 3 | Perp | `apps/pado/contracts-perp` |
 
 ### 2. Files to Update After Reset (Centralized ID Management)
 
@@ -63,12 +72,21 @@ Record all deployed contracts before reset:
 # 1. 중앙 소스 (핵심 - 반드시 업데이트)
 packages/devnet-config/devnet-ids.json
 
-# 2. Move.toml 파일 (수동 업데이트 필요)
-packages/devnet-tokens/Move.toml              # 통합 토큰 패키지
-apps/pado/contracts/Move.toml
+# 2. Move.toml 파일 (15개 - published-at + environments chain ID 업데이트)
+packages/devnet-tokens/Move.toml
+apps/pado/deepbookv3/packages/token/Move.toml
+apps/pado/deepbookv3/packages/deepbook/Move.toml
 apps/pado/contracts-prediction/Move.toml
+apps/pado/contracts-lottery/Move.toml
+apps/pado/contracts-oracle/Move.toml
+apps/pado/contracts-lending/Move.toml
+apps/pado/contracts-margin/Move.toml
+apps/pado/contracts-perp/Move.toml
+apps/pado/contracts-nsa/Move.toml
 apps/baram/contracts/Move.toml
 apps/baram/contracts-executor/Move.toml
+apps/baram/contracts-attestation/Move.toml
+apps/baram/contracts-compliance/Move.toml
 apps/nasun-website/contracts/governance/Move.toml
 
 # 3. 문서
@@ -124,17 +142,13 @@ cargo build --release
 ## Phase 2: Stop Services on All Nodes
 
 ```bash
-# Node 1 (3.38.127.23) - Validator
+# Node 1 (3.38.127.23) - Validator + Fullnode + Faucet
 ssh -i ~/.ssh/.awskey/nasun-devnet-key.pem ubuntu@3.38.127.23
-sudo systemctl stop nasun-validator
+sudo systemctl stop nasun-faucet nasun-fullnode nasun-validator
 
 # Node 2 (3.38.76.85) - Validator
 ssh -i ~/.ssh/.awskey/nasun-devnet-key.pem ubuntu@3.38.76.85
 sudo systemctl stop nasun-validator
-
-# Node 3 (52.78.117.96) - Fullnode + Faucet
-ssh -i ~/.ssh/.awskey/nasun-devnet-key.pem ubuntu@52.78.117.96
-sudo systemctl stop nasun-fullnode nasun-faucet
 ```
 
 ---
@@ -142,16 +156,16 @@ sudo systemctl stop nasun-fullnode nasun-faucet
 ## Phase 3: Deploy New Binary
 
 ```bash
-# From local machine - deploy sui-node to validators
+# From local machine - deploy sui-node to both nodes
 scp -i ~/.ssh/.awskey/nasun-devnet-key.pem \
   target/release/sui-node ubuntu@3.38.127.23:~/
 scp -i ~/.ssh/.awskey/nasun-devnet-key.pem \
   target/release/sui-node ubuntu@3.38.76.85:~/
 
-# Deploy sui-node, sui, and sui-faucet to Node 3 (Fullnode + Faucet)
+# Deploy sui and sui-faucet to Node 1 (Fullnode + Faucet)
 scp -i ~/.ssh/.awskey/nasun-devnet-key.pem \
-  target/release/sui-node target/release/sui target/release/sui-faucet \
-  ubuntu@52.78.117.96:~/
+  target/release/sui target/release/sui-faucet \
+  ubuntu@3.38.127.23:~/
 ```
 
 ---
@@ -159,14 +173,11 @@ scp -i ~/.ssh/.awskey/nasun-devnet-key.pem \
 ## Phase 4: Clear Old Data (All Nodes)
 
 ```bash
-# On Node 1 (Validator)
-rm -rf ~/authorities_db ~/consensus_db ~/.sui ~/.nasun
+# On Node 1 (Validator + Fullnode + Faucet)
+rm -rf ~/authorities_db ~/consensus_db ~/full_node_db ~/.sui ~/.nasun
 
 # On Node 2 (Validator)
 rm -rf ~/authorities_db ~/consensus_db ~/.sui ~/.nasun
-
-# On Node 3 (Fullnode)
-rm -rf ~/full_node_db ~/.sui ~/.nasun
 ```
 
 ---
@@ -208,7 +219,7 @@ authority-store-pruning-config:
 
 ---
 
-## Phase 7: Distribute Genesis to Node 2 and Node 3
+## Phase 7: Distribute Genesis to Node 2
 
 ```bash
 # On Node 1: Copy genesis and validator config to Node 2
@@ -221,26 +232,17 @@ mkdir -p ~/.sui/sui_config ~/.nasun
 ln -s ~/.sui/sui_config ~/.nasun/nasun_config
 cp ~/validator.yaml ~/.sui/sui_config/
 sed -i 's|network-address: /ip4/3.38.76.85|network-address: /ip4/0.0.0.0|' ~/validator.yaml
-
-# On Node 1: Copy genesis and fullnode config to Node 3
-scp ~/.sui/sui_config/genesis.blob ubuntu@52.78.117.96:~/.nasun/nasun_config/
-scp ~/.sui/sui_config/fullnode.yaml ubuntu@52.78.117.96:~/.nasun/nasun_config/
-scp ~/.sui/sui_config/sui.keystore ubuntu@52.78.117.96:~/.nasun/nasun_config/
-scp ~/.sui/sui_config/client.yaml ubuntu@52.78.117.96:~/.nasun/nasun_config/
-
-# On Node 3: Setup directories and symlinks
-ssh ubuntu@52.78.117.96
-mkdir -p ~/.nasun/nasun_config ~/.sui/sui_config
-# Symlink for faucet's keystore path reference
-ln -sf ~/.nasun/nasun_config/sui.keystore ~/.sui/sui_config/sui.keystore
 ```
+
+> **참고**: 2-Node 아키텍처에서 Fullnode와 Faucet은 Node 1에서 실행됩니다.
+> Genesis 생성 시 Node 1에 fullnode.yaml이 이미 생성되므로 별도 복사가 필요 없습니다.
 
 ---
 
 ## Phase 8: Verify Log Management Settings
 
 ```bash
-# On all 3 nodes - verify RUST_LOG setting
+# On both nodes - verify RUST_LOG setting
 grep RUST_LOG /etc/systemd/system/nasun-*.service
 # All should show: Environment="RUST_LOG=warn"
 
@@ -263,7 +265,7 @@ ssh ubuntu@3.38.76.85
 sudo systemctl start nasun-validator
 sudo systemctl status nasun-validator
 
-# 2. Node 1 (validator only)
+# 2. Node 1 (validator + fullnode + faucet)
 ssh ubuntu@3.38.127.23
 sudo systemctl start nasun-validator
 sudo systemctl status nasun-validator
@@ -271,8 +273,7 @@ sudo systemctl status nasun-validator
 # 3. Wait for consensus to stabilize
 sleep 30
 
-# 4. Node 3 (fullnode + faucet)
-ssh ubuntu@52.78.117.96
+# 4. Start Fullnode and Faucet on Node 1
 sudo systemctl start nasun-fullnode
 sleep 10
 sudo systemctl start nasun-faucet
@@ -284,18 +285,18 @@ sudo systemctl status nasun-fullnode nasun-faucet
 ## Phase 10: Verify Network
 
 ```bash
-# Check Chain ID (via Node 3 Fullnode)
-curl -X POST http://52.78.117.96:9000 \
+# Check Chain ID (via Node 1 Fullnode)
+curl -X POST http://3.38.127.23:9000 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"sui_getChainIdentifier","params":[]}'
 
 # Check checkpoint progress
-curl -X POST http://52.78.117.96:9000 \
+curl -X POST http://3.38.127.23:9000 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"sui_getLatestCheckpointSequenceNumber","params":[]}'
 
-# Test faucet (Node 3)
-curl -X POST http://52.78.117.96:5003/gas \
+# Test faucet (Node 1)
+curl -X POST http://3.38.127.23:5003/gas \
   -H "Content-Type: application/json" \
   -d '{"FixedAmountRequest":{"recipient":"<YOUR_ADDRESS>"}}'
 
@@ -309,115 +310,70 @@ curl -X POST https://rpc.devnet.nasun.io \
 
 ## Smart Contract Redeployment
 
-### Deployment Order
+> **V7에서 확립된 방법론**: 15개 컨트랙트를 3-tier로 나누어 의존성 순서대로 배포합니다.
+> 자세한 단계별 가이드는 [POST_RESET_CHECKLIST.md](./NASUN_DEVNET_POST_RESET_CHECKLIST.md) Section 2를 참조하세요.
 
-1. **Devnet Tokens + Faucet** (NBTC, NUSDC) - 통합 토큰 (packages/devnet-tokens)
-2. **DeepBook V3** - CLOB for order matching
-3. **Trading Pools** - NBTC/NUSDC, NSN/NUSDC
-4. **Prediction Market** - Binary prediction contracts
-5. **Governance** - Voting contracts
-6. **Baram** - AI Settlement Layer (uses devnet_tokens)
-7. **Baram Executor** - TEE Executor Registry
-
-### Step 1: Deploy Devnet Tokens + Faucet
-
-> **통합 토큰 패키지**: 모든 앱에서 공용으로 사용하는 NBTC/NUSDC 토큰입니다.
+### Deployment Command Pattern
 
 ```bash
-cd /home/naru/my_apps/nasun-monorepo/packages/devnet-tokens
-sui move build
-sui client publish --gas-budget 100000000
+# Tier 1 (독립 패키지): test-publish만 사용
+cd <contract_dir>
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet --gas-budget 500000000
 
-# Record:
-# - Package ID -> VITE_TOKENS_PACKAGE
-# - TokenFaucet ID -> VITE_TOKEN_FAUCET
-# - ClaimRecord ID -> VITE_CLAIM_RECORD
+# Tier 2/3 (의존 패키지): 공유 Pub.devnet.toml 참조
+cd <contract_dir>
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet \
+  --pubfile-path /home/naru/my_apps/nasun-monorepo/Pub.devnet.toml \
+  --gas-budget 500000000
 ```
 
-### Step 2: Deploy DeepBook V3
+> **주의**: `--with-unpublished-dependencies`를 이미 배포된 의존성에 사용하지 마세요.
+> 의존성을 번들링하여 별도의 타입을 생성하므로 타입 호환성이 깨집니다.
+> 반드시 `--pubfile-path`로 공유 `Pub.devnet.toml`을 지정하세요.
+
+### 3-Tier Deployment Order (15 contracts)
+
+| Tier | Contracts | Dependencies |
+|------|-----------|-------------|
+| **Tier 1** | devnet_tokens, deepbook_token, deepbook, governance, nsa, baram_executor, baram_attestation, baram_compliance | None |
+| **Tier 2** | prediction, lottery, oracle, lending, baram | devnet_tokens |
+| **Tier 3** | margin, perp | devnet_tokens + others |
+
+### Post-deploy Shared Object Creation
+
+Some contracts don't create all shared objects in `init()`. These must be created separately:
+
+| Object | Method |
+|--------|--------|
+| ProposalTypeRegistry | `governance::proposal::init_type_registry` |
+| TierRegistry | `baram_executor::executor_tier::create_tier_registry` |
+| CertificateRegistry | PTB: `create_registry` + `share_registry` |
+| VotingPowerOracle | PTB: `create_oracle` + `share_oracle` (Ed25519 key required) |
+| NBTC/NUSDC Pool | `deepbook::pool::create_pool_admin` |
+| NSN/NUSDC Pool | `deepbook::pool::create_pool_admin` |
+| BTC PerpMarket | `pado_perp::perpetual::create_market` |
+
+### Shared Pub.devnet.toml
+
+`test-publish` automatically adds entries to `Pub.devnet.toml` on successful deployment.
+When using `--pubfile-path` pointing to a shared file at the monorepo root, subsequent
+deployments can automatically resolve addresses of previously deployed packages.
 
 ```bash
-cd /home/naru/my_apps/nasun-monorepo/apps/pado/deepbook-v3
-sui move build
-sui client publish --gas-budget 200000000
+# Monorepo root의 공유 Pub 파일
+/home/naru/my_apps/nasun-monorepo/Pub.devnet.toml
 
-# Record:
-# - Package ID -> VITE_DEEPBOOK_PACKAGE
-# - Registry ID -> VITE_DEEPBOOK_REGISTRY
-# - AdminCap ID -> VITE_DEEPBOOK_ADMIN_CAP
+# 리셋 시 이전 Pub 파일 삭제
+rm -f /home/naru/my_apps/nasun-monorepo/Pub.devnet.toml
 ```
 
-### Step 3: Deploy Prediction Market
+### TEE Executor Registration (Optional)
+
+After deploying executor-nitro on EC2 Nitro Enclave:
 
 ```bash
-cd /home/naru/my_apps/nasun-monorepo/apps/pado/contracts-prediction
-sui move build
-sui client publish --gas-budget 100000000
-
-# Record:
-# - Package ID -> PREDICTION_PACKAGE_ID
-# - AdminCap -> PREDICTION_ADMIN_CAP
-# - GlobalState -> PREDICTION_GLOBAL_STATE
-```
-
-### Step 4: Deploy Governance
-
-```bash
-cd /home/naru/my_apps/nasun-monorepo/apps/nasun-website/contracts/governance
-sui move build
-sui client publish --gas-budget 100000000
-
-# Record:
-# - Package ID -> NASUN_DEVNET_PACKAGE_ID
-# - Dashboard -> NASUN_DEVNET_DASHBOARD_ID
-# - AdminCap -> NASUN_DEVNET_ADMIN_CAP
-```
-
-### Step 5: Deploy Baram (AI Settlement Layer)
-
-> **Note**: Baram uses devnet_tokens as dependency. Use `--with-unpublished-dependencies` if devnet_tokens
-> was not separately published, or ensure devnet_tokens has proper Pub.devnet.toml.
-
-```bash
-cd /home/naru/my_apps/nasun-monorepo/apps/baram/contracts
-
-# Update Move.toml [environments] section with new chain ID
-# Set devnet_tokens address from Step 1
-
-# Build and publish
-sui client test-publish --build-env devnet --with-unpublished-dependencies --gas-budget 100000000
-
-# Record:
-# - Package ID -> VITE_BARAM_PACKAGE_ID
-# - BaramRegistry (shared) -> VITE_BARAM_REGISTRY_ID
-# - UpgradeCap -> VITE_BARAM_UPGRADE_CAP
-# - NUSDC Type -> VITE_NUSDC_TYPE (e.g., <PKG>::nusdc::NUSDC)
-```
-
-### Step 6: Deploy Baram Executor Registry
-
-```bash
-cd /home/naru/my_apps/nasun-monorepo/apps/baram/contracts-executor
-
-# Update Move.toml [environments] section with new chain ID
-
-# Build and publish
-sui client test-publish --build-env devnet --gas-budget 100000000
-
-# Record:
-# - Package ID -> VITE_EXECUTOR_PACKAGE_ID
-# - ExecutorRegistry (shared) -> VITE_EXECUTOR_REGISTRY_ID
-# - AdminCap -> VITE_EXECUTOR_ADMIN_CAP
-```
-
-### Step 7: Register TEE Executor (Optional - requires EC2 enclave)
-
-After deploying executor-nitro on EC2 Nitro Enclave, register the executor:
-
-```bash
-# Get RSA public key from enclave attestation
-# Then register executor using AdminCap
-
 sui client call \
   --package <EXECUTOR_PACKAGE_ID> \
   --module executor \
@@ -509,20 +465,32 @@ git commit -m "chore: update devnet IDs for V7"
 
 ## Verification Checklist
 
+**Network:**
 - [ ] All 2 nodes running (Node 1 validator+fullnode+faucet, Node 2 validator)
 - [ ] Network running (Chain ID matches expected)
 - [ ] Checkpoints progressing
-- [ ] Faucet working (100 NSN per request, via Node 1)
+- [ ] Faucet working (NSN per request, via Node 1)
 - [ ] HTTPS endpoints working (rpc.devnet.nasun.io, faucet.devnet.nasun.io)
 - [ ] zkLogin flow working (Google OAuth -> ZK Proof -> Transaction)
-- [ ] All contracts redeployed
-- [ ] Baram contracts deployed (baram + baram_executor)
+
+**Smart Contracts (15 packages):**
+- [ ] Tier 1: devnet_tokens, deepbook_token, deepbook, governance, nsa, baram_executor, baram_attestation, baram_compliance
+- [ ] Tier 2: prediction, lottery, oracle, lending, baram
+- [ ] Tier 3: margin, perp
+- [ ] Post-deploy: ProposalTypeRegistry, TierRegistry, CertificateRegistry, VotingPowerOracle, DeepBook Pools (2), BTC PerpMarket
+- [ ] All Move.toml files updated with published-at
 - [ ] TEE Executor registered (if EC2 enclave available)
+
+**Frontend & Config:**
 - [ ] devnet-ids.json updated with all contract IDs
 - [ ] `pnpm devnet:sync` executed successfully
 - [ ] Frontend .env files updated (via devnet:sync)
 - [ ] CLAUDE.md documentation updated
+
+**Infrastructure:**
 - [ ] Monitoring scripts working (disk-monitor.sh, checkpoint-monitor.sh)
+- [ ] EBS volume size sufficient (100GB recommended)
+- [ ] DB pruning configured (num-epochs-to-retain: 50)
 
 ---
 
@@ -566,7 +534,7 @@ Failed to send certified blocks: SendError
 **Diagnosis**:
 ```bash
 # Check if checkpoints are progressing
-curl -s -X POST http://52.78.117.96:9000 \
+curl -s -X POST http://3.38.127.23:9000 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"sui_getLatestCheckpointSequenceNumber","params":[]}' | jq
 # If checkpoint number is not increasing, execution is halted
@@ -582,20 +550,21 @@ sudo journalctl -u nasun-validator --since "1 hour ago" | grep -c "SendError"
 # You MUST delete both together. Deleting only consensus_db causes assertion panic:
 #   "Commit replay should start at the beginning if there is no commit history"
 
-# On Node 1 and Node 2 (both validators):
+# On Node 1 (validator + fullnode + faucet):
+sudo systemctl stop nasun-faucet nasun-fullnode nasun-validator
+rm -rf ~/authorities_db ~/consensus_db ~/full_node_db
+
+# On Node 2 (validator):
 sudo systemctl stop nasun-validator
 rm -rf ~/authorities_db ~/consensus_db
-
-# On Node 3 (fullnode):
-sudo systemctl stop nasun-fullnode nasun-faucet
-rm -rf ~/full_node_db
 
 # Restart services (validators first, then fullnode)
 # Node 2:
 sudo systemctl start nasun-validator
 # Node 1:
 sudo systemctl start nasun-validator
-# Wait for consensus to stabilize, then Node 3:
+# Wait for consensus to stabilize:
+sleep 30
 sudo systemctl start nasun-fullnode
 sleep 10
 sudo systemctl start nasun-faucet
@@ -613,12 +582,9 @@ No managed addresses
 
 **Solution**:
 ```bash
-# Check client.yaml keystore path
-grep keystore ~/.nasun/nasun_config/client.yaml
-
-# Create symlink if needed (e.g., client.yaml references ~/.sui/sui_config/sui.keystore)
-mkdir -p ~/.sui/sui_config
-ln -sf ~/.nasun/nasun_config/sui.keystore ~/.sui/sui_config/sui.keystore
+# On Node 1: Check client.yaml keystore path
+grep keystore ~/.sui/sui_config/client.yaml
+# Ensure keystore path in client.yaml matches actual file location
 ```
 
 ---
@@ -643,5 +609,5 @@ ln -sf ~/.nasun/nasun_config/sui.keystore ~/.sui/sui_config/sui.keystore
 
 ---
 
-**Document Version**: 4.1
-**Last Updated**: 2026-01-27
+**Document Version**: 5.1
+**Last Updated**: 2026-02-04

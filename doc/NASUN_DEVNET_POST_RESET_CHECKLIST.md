@@ -1,6 +1,6 @@
 # Nasun Devnet Post-Reset Checklist
 
-**Version**: 4.0.0
+**Version**: 5.0.0
 **Created**: 2026-01-17
 **Updated**: 2026-02-04
 **Author**: Claude Code
@@ -47,12 +47,20 @@
 | 항목 | 설명 | 영향 받는 앱 |
 |------|------|-------------|
 | **Devnet Tokens** | 통합 NBTC, NUSDC 토큰 + Faucet | 모든 앱 (Pado, Baram 등) |
-| **DeepBook V3** | CLOB 거래 엔진 | Pado |
+| **DeepBook V3** | CLOB 거래 엔진 (token + deepbook) | Pado |
 | **Trading Pools** | NBTC/NUSDC, NSN/NUSDC | Pado |
 | **Prediction Market** | 바이너리 예측 마켓 | Pado |
+| **Lottery** | Sui Random 기반 로터리 | Pado |
+| **Oracle** | DevOracle 가격 피드 | Pado |
+| **Lending** | 렌딩 프로토콜 | Pado |
+| **Margin** | Unified Margin v1 (Multi-collateral) | Pado |
+| **Perp** | Perpetuals DEX | Pado |
+| **NSA** | Nasun Smart Account | Pado |
 | **Governance** | Proposal (fee-based) + Poll (sponsored) 투표 | Nasun Website |
 | **Baram** | AI Settlement Layer | Baram |
-| **Baram Executor** | TEE Executor Registry | Baram |
+| **Baram Executor** | TEE Executor Registry + TierRegistry | Baram |
+| **Baram Attestation** | Attestation Registry | Baram |
+| **Baram Compliance** | Compliance Registry | Baram |
 | **Dummy Proposals** | 테스트용 프로포절 | Nasun Website |
 | **Dummy Markets** | 테스트용 예측 마켓 | Pado |
 
@@ -60,16 +68,41 @@
 
 ## 2. 스마트 컨트랙트 재배포
 
-### 2.1 배포 순서 (의존성 순서)
+### 2.1 배포 순서 (3-Tier 의존성 순서)
+
+> **V7에서 확립된 배포 패턴**: 15개 컨트랙트를 3단계로 나누어 의존성 순서대로 배포합니다.
+> 각 배포 전에 `rm -f Move.lock Pub.devnet.toml`을 실행하여 이전 배포 잔여 파일을 정리하세요.
 
 ```
-1. Devnet Tokens + Faucet  ←  다른 컨트랙트의 토큰 타입 의존 (packages/devnet-tokens)
-2. DeepBook V3             ←  Trading Pools의 Pool 생성 의존
-3. Trading Pools           ←  (Optional) Pool 생성
-4. Prediction Market       ←  Devnet Tokens 의존
-5. Governance              ←  독립적
-6. Baram                   ←  Devnet Tokens 의존 (NUSDC 결제)
-7. Baram Executor          ←  독립적
+[Tier 1 - 독립 패키지 (의존성 없음)]
+ 1. devnet_tokens        ← 다른 컨트랙트의 토큰 타입 의존 기반 (packages/devnet-tokens)
+ 2. deepbook_token       ← DeepBook 전용 토큰 (apps/pado/deepbookv3/packages/token)
+ 3. deepbook             ← CLOB 거래 엔진 (apps/pado/deepbookv3/packages/deepbook)
+ 4. governance           ← 투표 시스템 (apps/nasun-website/contracts/governance)
+ 5. nsa                  ← Nasun Smart Account (apps/pado/contracts-nsa)
+ 6. baram_executor       ← Executor Registry (apps/baram/contracts-executor)
+ 7. baram_attestation    ← Attestation Registry (apps/baram/contracts-attestation)
+ 8. baram_compliance     ← Compliance Registry (apps/baram/contracts-compliance)
+
+[Tier 2 - devnet_tokens 의존]
+ 9. prediction           ← 예측 마켓 (apps/pado/contracts-prediction)
+10. lottery              ← 로터리 (apps/pado/contracts-lottery)
+11. oracle               ← DevOracle 가격 피드 (apps/pado/contracts-oracle)
+12. lending              ← 렌딩 (apps/pado/contracts-lending)
+13. baram                ← AI Settlement Layer (apps/baram/contracts)
+
+[Tier 3 - 다중 의존]
+14. margin               ← Unified Margin (apps/pado/contracts-margin)
+15. perp                 ← Perpetuals DEX (apps/pado/contracts-perp)
+
+[Post-deploy - 별도 생성 필요한 공유 객체]
+ - ProposalTypeRegistry  ← governance::proposal::init_type_registry
+ - TierRegistry          ← baram_executor::executor_tier::create_tier_registry
+ - CertificateRegistry   ← PTB: create_registry + share_registry
+ - VotingPowerOracle     ← PTB: create_oracle + share_oracle (Ed25519 키 필요)
+ - NBTC/NUSDC Pool       ← deepbook::pool::create_pool_admin
+ - NSN/NUSDC Pool        ← deepbook::pool::create_pool_admin
+ - BTC PerpMarket        ← pado_perp::perpetual::create_market
 ```
 
 ### 2.2 Move.toml 업데이트
@@ -91,161 +124,238 @@ devnet = "<NEW_CHAIN_ID>"
 nasun-devnet = "<NEW_CHAIN_ID>"
 ```
 
-### 2.3 Step 1: Devnet Tokens + Faucet
+### 2.3 배포 명령어 패턴
 
-> **통합 토큰 패키지**: `packages/devnet-tokens`는 모든 앱에서 공용으로 사용하는 NBTC/NUSDC 토큰입니다.
+> **중요**: V7부터 `sui client test-publish --build-env devnet`을 사용합니다.
+> `sui client publish`는 Sui CLI 1.63.3에서 버그가 있어 사용하지 않습니다.
 
 ```bash
-cd /home/naru/my_apps/nasun-monorepo/packages/devnet-tokens
+# Tier 1 (독립 패키지) - 의존성 없는 패키지
+cd <contract_dir>
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet --gas-budget 500000000
 
-# Move.toml 업데이트 (published-at, devnet_tokens address를 0x0으로 리셋)
-# [addresses]
-# devnet_tokens = "0x0"
-# published-at 줄 삭제 또는 주석 처리
-
-# 빌드
-sui move build
-
-# 배포
-sui client publish --gas-budget 100000000
+# Tier 2/3 (devnet_tokens 의존 패키지) - 공유 Pub 파일 사용
+cd <contract_dir>
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet \
+  --pubfile-path /home/naru/my_apps/nasun-monorepo/Pub.devnet.toml \
+  --gas-budget 500000000
 ```
 
-**기록할 값:**
-| 변수명 | 설명 | 예시 |
-|--------|------|------|
-| `VITE_TOKENS_PACKAGE` | Package ID | `0x10748ed4...` |
-| `VITE_TOKEN_FAUCET` | TokenFaucet Shared Object | `0x04aa4144...` |
-| `VITE_CLAIM_RECORD` | ClaimRecord Shared Object | `0x8b9e8545...` |
-| `VITE_NBTC_TYPE` | NBTC Type | `<PKG>::nbtc::NBTC` |
-| `VITE_NUSDC_TYPE` | NUSDC Type | `<PKG>::nusdc::NUSDC` |
+> **절대 사용하지 말 것**: `--with-unpublished-dependencies`를 이미 배포된 의존성에 사용하면
+> 의존성이 번들링되어 별도의 타입이 생성됩니다. 이로 인해 타입 호환성이 깨집니다.
+> 반드시 `--pubfile-path`를 사용하세요.
 
 **배포 후 Move.toml 업데이트:**
 ```toml
+# 각 컨트랙트의 Move.toml에 published-at 추가
 published-at = "<NEW_PACKAGE_ID>"
-
-[addresses]
-pado = "<NEW_PACKAGE_ID>"
 ```
 
-### 2.4 Step 2: DeepBook V3
+### 2.4 Tier 1: 독립 패키지 배포
 
-> **주의**: DeepBook V3는 매우 큰 패키지입니다. 배포 시 약 **580 NSN** 가스가 필요합니다.
-> 배포 전에 가스 코인을 병합하세요: `sui client merge-coin --primary-coin <COIN_ID> --coin-to-merge <OTHER_COIN_ID>`
+#### Step 1: Devnet Tokens + Faucet
 
 ```bash
-# 먼저 DeepBook token 패키지 배포 (DeepBook 전용 토큰)
+cd /home/naru/my_apps/nasun-monorepo/packages/devnet-tokens
+rm -f Move.lock Pub.devnet.toml
+# Move.toml: devnet_tokens = "0x0", published-at 삭제
+sui client test-publish --build-env devnet --gas-budget 500000000
+# → PackageID, TokenFaucet, ClaimRecord, UpgradeCap 기록
+```
+
+#### Step 2: DeepBook Token + DeepBook
+
+```bash
+# DeepBook token 패키지
 cd /home/naru/my_apps/nasun-monorepo/apps/pado/deepbookv3/packages/token
-sui move build
-sui client publish --gas-budget 100000000
-# TOKEN_PACKAGE_ID 기록
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet --gas-budget 500000000
+# → TOKEN_PACKAGE_ID 기록
 
-# 그 다음 deepbook 패키지 배포
+# DeepBook 패키지 (가스 코인 병합 필요 - ~580 NSN)
 cd /home/naru/my_apps/nasun-monorepo/apps/pado/deepbookv3/packages/deepbook
-
-# Move.toml environments 업데이트, token 주소 설정
-sui move build
-sui client publish --gas 0x<MERGED_COIN_ID> --gas-budget 800000000000
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet --gas-budget 500000000
+# → PackageID, Registry, AdminCap 기록
 ```
 
-**기록할 값:**
-| 변수명 | 설명 |
-|--------|------|
-| `VITE_DEEPBOOK_PACKAGE` | DeepBook Package ID |
-| `VITE_DEEPBOOK_REGISTRY` | Registry Shared Object |
-| `VITE_DEEPBOOK_ADMIN_CAP` | AdminCap Object |
-| `VITE_DEEP_TOKEN` | DEEP Token Treasury Cap |
-
-### 2.5 Step 3: Prediction Market
-
-```bash
-cd /home/naru/my_apps/nasun-monorepo/apps/pado/contracts-prediction
-
-# Move.toml 업데이트
-# - pado address를 Step 1에서 배포한 패키지 ID로 설정
-# - environments 업데이트
-
-sui move build
-sui client publish --gas-budget 100000000
-```
-
-**기록할 값:**
-| 변수명 | 설명 |
-|--------|------|
-| `VITE_PREDICTION_PACKAGE` | Package ID |
-| `VITE_PREDICTION_GLOBAL_STATE` | GlobalState Shared Object |
-| `VITE_PREDICTION_ADMIN_CAP` | AdminCap Object |
-
-### 2.6 Step 4: Governance
+#### Step 3: Governance
 
 ```bash
 cd /home/naru/my_apps/nasun-monorepo/apps/nasun-website/contracts/governance
-
-# Move.toml environments 업데이트
-sui move build
-sui client publish --gas-budget 100000000
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet --gas-budget 500000000
+# → PackageID, Dashboard, AdminCap 기록
 ```
 
-**기록할 값:**
-| 변수명 | 설명 |
-|--------|------|
-| `VITE_GOVERNANCE_PACKAGE_ID` | Package ID |
-| `VITE_GOVERNANCE_DASHBOARD_ID` | Dashboard Shared Object |
-| `VITE_PROPOSAL_TYPE_REGISTRY_ID` | ProposalTypeRegistry Shared Object |
-| `NASUN_DEVNET_ADMIN_CAP` | AdminCap Object |
-| `NASUN_DEVNET_UPGRADE_CAP` | UpgradeCap Object |
-
-### 2.7 Step 5: Baram (AI Settlement Layer)
-
-> **Note**: Baram 패키지는 devnet_tokens를 의존성으로 사용합니다.
-> `--with-unpublished-dependencies` 플래그 사용 시 devnet_tokens 모듈도 함께 배포됩니다.
+#### Step 4: NSA
 
 ```bash
-cd /home/naru/my_apps/nasun-monorepo/apps/baram/contracts
-
-# Move.toml 업데이트
-# - [environments] 섹션에 새 chain ID 추가
-# - [addresses]에서 devnet_tokens 주소 설정 (Step 1에서 배포한 ID)
-
-# 이전 Pub 파일 삭제
-rm -f Pub.devnet.toml
-
-# 빌드 및 배포
-sui client test-publish --build-env devnet --with-unpublished-dependencies --gas-budget 100000000
+cd /home/naru/my_apps/nasun-monorepo/apps/pado/contracts-nsa
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet --gas-budget 500000000
+# → PackageID, UpgradeCap 기록
 ```
 
-**기록할 값:**
-| 변수명 | 설명 |
-|--------|------|
-| `VITE_BARAM_PACKAGE_ID` | Package ID |
-| `VITE_BARAM_REGISTRY_ID` | BaramRegistry Shared Object |
-| `VITE_BARAM_UPGRADE_CAP` | UpgradeCap Object |
-| `VITE_NUSDC_TYPE` | `<PKG>::nusdc::NUSDC` |
-
-### 2.8 Step 6: Baram Executor Registry
+#### Step 5: Baram Executor, Attestation, Compliance
 
 ```bash
+# Executor
 cd /home/naru/my_apps/nasun-monorepo/apps/baram/contracts-executor
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet --gas-budget 500000000
 
-# Move.toml [environments] 섹션 업데이트
-rm -f Pub.devnet.toml
+# Attestation
+cd /home/naru/my_apps/nasun-monorepo/apps/baram/contracts-attestation
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet --gas-budget 500000000
 
-# 빌드 및 배포
-sui client test-publish --build-env devnet --gas-budget 100000000
+# Compliance
+cd /home/naru/my_apps/nasun-monorepo/apps/baram/contracts-compliance
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet --gas-budget 500000000
 ```
 
-**기록할 값:**
-| 변수명 | 설명 |
-|--------|------|
-| `VITE_EXECUTOR_PACKAGE_ID` | Package ID |
-| `VITE_EXECUTOR_REGISTRY_ID` | ExecutorRegistry Shared Object |
-| `VITE_EXECUTOR_ADMIN_CAP` | AdminCap Object |
+### 2.5 Tier 2: devnet_tokens 의존 패키지 배포
 
-### 2.9 Step 7: TEE Executor 등록 (Optional)
+> **참고**: Tier 1 배포 시 `Pub.devnet.toml`이 모노레포 루트에 자동 생성됩니다.
+> Tier 2 배포에서 `--pubfile-path`로 이 파일을 참조합니다.
+
+```bash
+PUBFILE="/home/naru/my_apps/nasun-monorepo/Pub.devnet.toml"
+
+# Prediction
+cd /home/naru/my_apps/nasun-monorepo/apps/pado/contracts-prediction
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet --pubfile-path $PUBFILE --gas-budget 500000000
+
+# Lottery
+cd /home/naru/my_apps/nasun-monorepo/apps/pado/contracts-lottery
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet --pubfile-path $PUBFILE --gas-budget 500000000
+
+# Oracle
+cd /home/naru/my_apps/nasun-monorepo/apps/pado/contracts-oracle
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet --pubfile-path $PUBFILE --gas-budget 500000000
+
+# Lending
+cd /home/naru/my_apps/nasun-monorepo/apps/pado/contracts-lending
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet --pubfile-path $PUBFILE --gas-budget 500000000
+
+# Baram
+cd /home/naru/my_apps/nasun-monorepo/apps/baram/contracts
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet --pubfile-path $PUBFILE --gas-budget 500000000
+```
+
+### 2.6 Tier 3: 다중 의존 패키지 배포
+
+```bash
+PUBFILE="/home/naru/my_apps/nasun-monorepo/Pub.devnet.toml"
+
+# Margin
+cd /home/naru/my_apps/nasun-monorepo/apps/pado/contracts-margin
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet --pubfile-path $PUBFILE --gas-budget 500000000
+
+# Perp
+cd /home/naru/my_apps/nasun-monorepo/apps/pado/contracts-perp
+rm -f Move.lock Pub.devnet.toml
+sui client test-publish --build-env devnet --pubfile-path $PUBFILE --gas-budget 500000000
+```
+
+### 2.7 Post-deploy: 공유 객체 생성
+
+배포 후 `init()` 함수에서 자동 생성되지 않는 공유 객체를 별도로 생성해야 합니다.
+
+#### ProposalTypeRegistry (Governance)
+
+```bash
+sui client call \
+  --package <GOVERNANCE_PKG> \
+  --module proposal \
+  --function init_type_registry \
+  --args <ADMIN_CAP> \
+  --gas-budget 10000000
+```
+
+#### TierRegistry (Baram Executor)
+
+```bash
+sui client call \
+  --package <EXECUTOR_PKG> \
+  --module executor_tier \
+  --function create_tier_registry \
+  --args <EXECUTOR_ADMIN_CAP> \
+  --gas-budget 10000000
+```
+
+#### CertificateRegistry (Governance, PTB 필요)
+
+```bash
+sui client ptb \
+  --move-call "<GOVERNANCE_PKG>::certificate::create_registry(<ADMIN_CAP>)" \
+  --assign registry \
+  --move-call "<GOVERNANCE_PKG>::certificate::share_registry(registry)" \
+  --gas-budget 10000000
+```
+
+#### VotingPowerOracle (Governance, PTB 필요)
+
+```bash
+# Ed25519 키 생성
+sui keytool generate ed25519
+# → public key (32바이트) 추출 (base64 디코드 후 1바이트 flag prefix 제거)
+
+sui client ptb \
+  --move-call "<GOVERNANCE_PKG>::voting_power_oracle::create_oracle(<ADMIN_CAP>, vector[<32_BYTE_PUBKEY_HEX>], <GRACE_PERIOD_MS>)" \
+  --assign oracle \
+  --move-call "<GOVERNANCE_PKG>::voting_power_oracle::share_oracle(oracle)" \
+  --gas-budget 10000000
+```
+
+#### DeepBook Pools
+
+```bash
+# NBTC/NUSDC Pool
+sui client call \
+  --package <DEEPBOOK_PKG> \
+  --module pool \
+  --function create_pool_admin \
+  --type-args "<TOKENS_PKG>::nbtc::NBTC" "<TOKENS_PKG>::nusdc::NUSDC" \
+  --args <DEEPBOOK_REGISTRY> <DEEPBOOK_ADMIN_CAP> 1000 1000 0 0x6 \
+  --gas-budget 10000000
+
+# NSN/NUSDC Pool (NSN = 0x2::sui::SUI)
+sui client call \
+  --package <DEEPBOOK_PKG> \
+  --module pool \
+  --function create_pool_admin \
+  --type-args "0x2::sui::SUI" "<TOKENS_PKG>::nusdc::NUSDC" \
+  --args <DEEPBOOK_REGISTRY> <DEEPBOOK_ADMIN_CAP> 1000 1000 0 0x6 \
+  --gas-budget 10000000
+```
+
+#### BTC PerpMarket
+
+```bash
+sui client call \
+  --package <PERP_PKG> \
+  --module perpetual \
+  --function create_market \
+  --args <PERP_ADMIN_CAP> 1 "BTC-PERP" 1000000000000 0x6 \
+  --gas-budget 10000000
+```
+
+### 2.8 TEE Executor 등록 (Optional)
 
 EC2 Nitro Enclave 인스턴스가 필요합니다. Spot 인스턴스로 비용 절감 가능.
 
 ```bash
-# Executor 등록 (AdminCap 필요)
 sui client call \
   --package <EXECUTOR_PACKAGE_ID> \
   --module executor \
@@ -428,29 +538,43 @@ git add . && git commit -m "chore: update devnet IDs for V7"
 **devnet-ids.json 업데이트 항목:**
 | 섹션 | 업데이트 내용 |
 |------|-------------|
-| `version` | 버전 번호 (V6, V7 등) |
+| `version` | 버전 번호 (V7, V8 등) |
 | `lastUpdated` | 업데이트 날짜 |
+| `admin` | 배포자 주소 |
 | `network.chainId` | 새 Chain ID |
 | `tokens.*` | Devnet Tokens Package ID, TokenFaucet ID 등 |
 | `deepbook.*` | DeepBook V3 Package ID, Registry ID 등 |
 | `prediction.*` | Prediction Market Package ID, GlobalState ID 등 |
-| `lottery.*` | Lottery Package ID, LotteryPool ID 등 |
-| `governance.*` | Governance Package ID, Dashboard ID 등 |
-| `baram.*` | Baram Package ID, Registry ID 등 |
+| `lottery.*` | Lottery Package ID, Registry ID 등 |
+| `governance.*` | Governance Package ID, Dashboard, VotingPowerOracle, CertificateRegistry, ProposalTypeRegistry |
+| `baram.*` | Baram + Executor + Attestation + Compliance (전체 sub-system) |
+| `pools.*` | NBTC/NUSDC, NSN/NUSDC DeepBook Pool ID |
+| `oracle.*` | DevOracle Package ID, Registry ID 등 |
+| `lending.*` | Lending Package ID, Pool ID 등 |
+| `margin.*` | Margin Package ID, Registry ID 등 |
+| `perp.*` | Perp Package ID, BTC Market ID 등 |
+| `nsa.*` | NSA Package ID, UpgradeCap |
 
 **Move.toml 수동 업데이트 필요:**
-> devnet-ids.json 외에 다음 Move.toml 파일들도 수동 업데이트 필요
+> devnet-ids.json 외에 다음 15개 Move.toml 파일에 `published-at`과 `[environments]` chain ID 업데이트 필요
 
 | 파일 | 업데이트 내용 |
 |------|-------------|
-| `packages/devnet-tokens/Move.toml` | published-at, devnet_tokens 주소 |
-| `apps/pado/contracts/Move.toml` | published-at, pado 주소 |
-| `apps/pado/contracts-prediction/Move.toml` | pado 주소, environments |
-| `apps/baram/contracts/Move.toml` | environments, addresses |
-| `apps/baram/contracts-executor/Move.toml` | environments |
-| `apps/baram/contracts-compliance/Move.toml` | environments |
-| `apps/baram/contracts-attestation/Move.toml` | environments |
-| `apps/nasun-website/contracts/governance/Move.toml` | environments |
+| `packages/devnet-tokens/Move.toml` | published-at, devnet_tokens 주소, environments |
+| `apps/pado/deepbookv3/packages/token/Move.toml` | published-at, environments |
+| `apps/pado/deepbookv3/packages/deepbook/Move.toml` | published-at, environments |
+| `apps/pado/contracts-prediction/Move.toml` | published-at, environments |
+| `apps/pado/contracts-lottery/Move.toml` | published-at, environments |
+| `apps/pado/contracts-oracle/Move.toml` | published-at, environments |
+| `apps/pado/contracts-lending/Move.toml` | published-at, environments |
+| `apps/pado/contracts-margin/Move.toml` | published-at, environments |
+| `apps/pado/contracts-perp/Move.toml` | published-at, environments |
+| `apps/pado/contracts-nsa/Move.toml` | published-at, environments |
+| `apps/baram/contracts/Move.toml` | published-at, environments |
+| `apps/baram/contracts-executor/Move.toml` | published-at, environments |
+| `apps/baram/contracts-attestation/Move.toml` | published-at, environments |
+| `apps/baram/contracts-compliance/Move.toml` | published-at, environments |
+| `apps/nasun-website/contracts/governance/Move.toml` | published-at, environments |
 
 **Sui 프레임워크 Move.toml (중요):**
 
@@ -612,21 +736,44 @@ export const NASUN_DEVNET_DELEGATION_REGISTRY_ID = '';  // TODO: 배포 필요�
 ### 5.1 네트워크 검증
 
 - [ ] 2개 노드 모두 실행 중 (Node 1 validator+fullnode+faucet, Node 2 validator)
-- [ ] Chain ID 확인 (`12bf3808` - V6)
+- [ ] Chain ID 확인 (`272218f1` - V7)
 - [ ] 체크포인트 진행 확인 (Node 1 RPC)
 - [ ] HTTPS 엔드포인트 작동 (rpc.devnet.nasun.io, faucet.devnet.nasun.io)
-- [ ] Faucet 작동 확인 (100 NSN 토큰)
+- [ ] Faucet 작동 확인 (NSN 토큰)
 - [ ] zkLogin 작동 확인
 
 ### 5.2 스마트 컨트랙트 검증
 
+**Tier 1 (독립 패키지):**
 - [ ] Devnet Tokens 배포 완료 (packages/devnet-tokens)
 - [ ] Token Faucet 작동 (NBTC, NUSDC 수령)
+- [ ] DeepBook Token 배포 완료
 - [ ] DeepBook V3 배포 완료
-- [ ] Prediction Market 배포 완료
 - [ ] Governance 배포 완료
-- [ ] Baram 배포 완료 (BaramRegistry)
+- [ ] NSA 배포 완료
 - [ ] Baram Executor 배포 완료 (ExecutorRegistry)
+- [ ] Baram Attestation 배포 완료
+- [ ] Baram Compliance 배포 완료
+
+**Tier 2 (devnet_tokens 의존):**
+- [ ] Prediction Market 배포 완료
+- [ ] Lottery 배포 완료
+- [ ] Oracle 배포 완료
+- [ ] Lending 배포 완료
+- [ ] Baram 배포 완료 (BaramRegistry)
+
+**Tier 3 (다중 의존):**
+- [ ] Margin 배포 완료
+- [ ] Perp 배포 완료
+
+**Post-deploy 공유 객체:**
+- [ ] ProposalTypeRegistry 생성 완료
+- [ ] TierRegistry 생성 완료
+- [ ] CertificateRegistry 생성 완료
+- [ ] VotingPowerOracle 생성 완료
+- [ ] NBTC/NUSDC DeepBook Pool 생성 완료
+- [ ] NSN/NUSDC DeepBook Pool 생성 완료
+- [ ] BTC PerpMarket 생성 완료
 - [ ] TEE Executor 등록 완료 (Optional - EC2 enclave 필요)
 
 ### 5.3 더미 데이터 검증
@@ -765,5 +912,5 @@ old-style `[addresses]` 섹션을 사용하는 기존 컨트랙트들의 마이�
 
 ---
 
-**Document Version**: 3.1.0
-**Last Updated**: 2026-01-27
+**Document Version**: 5.0.0
+**Last Updated**: 2026-02-04
