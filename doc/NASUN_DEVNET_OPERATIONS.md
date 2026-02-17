@@ -1,8 +1,8 @@
 # Nasun Devnet 운영 가이드
 
-**Version**: 5.1.0
+**Version**: 5.3.0
 **Created**: 2025-12-23
-**Updated**: 2026-02-04
+**Updated**: 2026-02-17
 **Author**: Claude Code
 **Status**: 운영 중 (V7, 2-Node)
 
@@ -91,12 +91,13 @@
 
 ### 2.2 스토리지
 
-| 노드 | EBS | 주요 디렉토리 | 현재 사용량 (2026-02-03) |
+| 노드 | EBS | 주요 디렉토리 | 현재 사용량 (2026-02-17) |
 |------|-----|--------------|-------------------------|
-| Node 1 | **100GB gp3** | `~/.sui/sui_config/authorities_db/`, `~/full_node_db/` | 6% (~5.7GB) |
-| Node 2 | **100GB gp3** | `~/.sui/sui_config/authorities_db/` | 6% (~5.3GB) |
+| Node 1 | **200GB gp3** | `~/.sui/sui_config/authorities_db/` (28GB), `~/full_node_db/` (41GB) | 42% (~80GB) |
+| Node 2 | **200GB gp3** | `~/.sui/sui_config/authorities_db/` | 18% (~34GB) |
 
-> **V7 리셋 (2026-02-04)**: 전체 데이터 초기화. 디스크 사용량 6%로 리셋됨.
+> **EBS 확장 (2026-02-17)**: 양 노드 100GB → 200GB 확장. Fullnode DB ~3.2GB/일, Validator DB ~2.2GB/일 증가 대응.
+> 월 $8 추가 비용 (gp3 $0.08/GB/월). Fullnode DB 재동기화 자동화와 병행하여 디스크 관리.
 
 **DB Pruning 설정** (현재 상태):
 ```yaml
@@ -113,13 +114,12 @@ authority-store-pruning-config:
 
 ### 2.3 스왑 메모리
 
-메모리 부족으로 인한 노드 크래시 방지를 위해 모든 노드에 2GB 스왑 설정:
+메모리 부족으로 인한 노드 크래시 방지를 위해 스왑 설정:
 
-| 노드 | 스왑 파일 | 크기 |
-|------|----------|------|
-| Node 1 | /swapfile | 2GB |
-| Node 2 | /swapfile | 2GB |
-| Node 3 | /swapfile | 2GB |
+| 노드 | 스왑 파일 | 크기 | 비고 |
+|------|----------|------|------|
+| Node 1 | /swapfile | **4GB** | 2026-02-07 확장 (2GB→4GB), Fullnode 메모리 leak 대응 |
+| Node 2 | /swapfile | 2GB | |
 
 ```bash
 # 스왑 상태 확인
@@ -353,14 +353,27 @@ aws sns publish --topic-arn arn:aws:sns:ap-northeast-2:150674276464:nasun-devnet
 - 디스크 사용량 70% NOTICE / 80% WARNING / 90% CRITICAL (2026-02-03 단계별 강화)
 - 체크포인트 5분 이상 멈춤 (합의 장애)
 
-### 4.7 체크포인트 모니터링 및 자동 복구 (2026-01-01 추가)
+### 4.7 체크포인트 모니터링 및 자동 복구 (2026-01-01 추가, 2026-02-17 수정)
 
 양 노드에 `/home/ubuntu/checkpoint-monitor.sh` 스크립트 설치:
+
+> **2026-02-17 수정**: Fullnode DB 재동기화(Section 4.9) 진행 중에는 RPC가 정상적으로 내려가므로,
+> resync lock 파일 체크를 추가하여 불필요한 validator 재시작을 방지합니다.
 
 **Node 1/2 버전** (validator 재시작, Node 1 RPC 모니터링, SNS 알림):
 ```bash
 #!/bin/bash
-RPC_URL="http://3.38.127.23:9000"
+
+# Resync 중에는 스킵 (RPC 다운이 정상이므로)
+RESYNC_LOCK="/home/ubuntu/.fullnode-resync.lock"
+if [ -f "$RESYNC_LOCK" ]; then
+    LOCK_PID=$(cat "$RESYNC_LOCK" 2>/dev/null || echo "")
+    if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
+        exit 0
+    fi
+fi
+
+RPC_URL="http://localhost:9000"
 STATE_FILE="/home/ubuntu/.checkpoint_state"
 STALE_THRESHOLD=5  # 5분
 
@@ -388,8 +401,10 @@ if [ "$STALE_COUNT" -ge "$STALE_THRESHOLD" ]; then
     --message "ALERT: Checkpoint stuck at $CURRENT for ${STALE_COUNT}min. Restarting..." \
     --subject "Nasun Devnet Consensus Alert" 2>/dev/null || true
   sudo systemctl restart nasun-validator
+  sleep 5
+  sudo systemctl restart nasun-fullnode
   echo "$CURRENT 0" > "$STATE_FILE"
-  logger -t checkpoint-monitor "Restarted validator due to stale checkpoint"
+  logger -t checkpoint-monitor "Restarted validator and fullnode due to stale checkpoint"
 fi
 ```
 
@@ -402,6 +417,146 @@ fi
 |------|---------|------------|----------|
 | Node 1 | localhost:9000 | validator + fullnode | O |
 | Node 2 | 3.38.127.23:9000 | validator | X |
+
+### 4.8 Fullnode 자동 재시작 (2026-02-08 추가, 2026-02-17 수정)
+
+SUI Fullnode의 메모리 leak 대응을 위해 6시간마다 자동 재시작.
+
+> **2026-02-17 수정**: Fullnode DB 재동기화(Section 4.9) 진행 중에는 재시작을 스킵하도록
+> resync lock 파일 체크를 추가했습니다.
+
+**스크립트**: `/home/ubuntu/fullnode-restart.sh` (Node 1)
+
+```bash
+#!/bin/bash
+# Fullnode periodic restart to mitigate memory leak
+# RPC downtime: ~60-90 seconds during restart
+
+LOG_FILE=/home/ubuntu/fullnode-restart.log
+TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+# Check if resync is in progress - skip restart
+RESYNC_LOCK="/home/ubuntu/.fullnode-resync.lock"
+if [ -f "$RESYNC_LOCK" ]; then
+    LOCK_PID=$(cat "$RESYNC_LOCK" 2>/dev/null || echo "")
+    if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
+        echo "[$TIMESTAMP] Skipping restart: fullnode resync in progress (PID: $LOCK_PID)" >> $LOG_FILE
+        exit 0
+    fi
+fi
+
+# Log memory before restart
+MEM_BEFORE=$(free -m | awk '/Mem:/ {print $3}')
+SWAP_BEFORE=$(free -m | awk '/Swap:/ {print $3}')
+FULLNODE_RSS=$(ps -o rss= -p $(pgrep -f 'fullnode.yaml') 2>/dev/null | awk '{print int($1/1024)}')
+
+echo "[$TIMESTAMP] Restarting fullnode. RAM: ${MEM_BEFORE}MB, Swap: ${SWAP_BEFORE}MB, Fullnode RSS: ${FULLNODE_RSS}MB" >> $LOG_FILE
+
+sudo systemctl restart nasun-fullnode
+
+sleep 15
+
+# Log memory after restart
+MEM_AFTER=$(free -m | awk '/Mem:/ {print $3}')
+SWAP_AFTER=$(free -m | awk '/Swap:/ {print $3}')
+STATUS=$(systemctl is-active nasun-fullnode)
+
+echo "[$TIMESTAMP] Restart complete. RAM: ${MEM_AFTER}MB, Swap: ${SWAP_AFTER}MB, Status: $STATUS" >> $LOG_FILE
+```
+
+**Cron 설정** (6시간마다, 00/06/12/18 UTC):
+```
+0 0,6,12,18 * * * /home/ubuntu/fullnode-restart.sh
+```
+
+**로그 확인**:
+```bash
+cat ~/fullnode-restart.log
+```
+
+| 항목 | 값 |
+|------|-----|
+| 재시작 간격 | 6시간 (00:00, 06:00, 12:00, 18:00 UTC) |
+| RPC 중단 | ~60-90초 |
+| 합의 영향 | 없음 (Fullnode는 합의 미참여) |
+| 메모리 해제 효과 | RSS 7-8GB → ~800MB |
+
+### 4.9 Fullnode DB 재동기화 자동화 (2026-02-17 추가)
+
+Fullnode DB가 ~3.2GB/일 증가하여 디스크 임계값을 초과하는 것을 방지하기 위한
+자동 재동기화 시스템. Fullnode DB를 삭제하고 genesis부터 재구축하여 디스크를 회수합니다.
+
+**스크립트**: `/home/ubuntu/fullnode-resync.sh` (Node 1)
+
+**트리거 조건** (OR):
+
+| 트리거 | 조건 | 스케줄 |
+|--------|------|--------|
+| 디스크 임계값 | 80% 이상 | 6시간마다 체크 (xx:30 UTC) |
+| 정기 실행 | 무조건 | 매월 1일 21:00 UTC (KST 06:00) |
+
+**Cron 설정**:
+```
+# 디스크 임계값 트리거 (6시간마다, restart와 30분 오프셋)
+30 0,6,12,18 * * * /home/ubuntu/fullnode-resync-trigger.sh
+
+# 정기 실행 (매월 1일 21:00 UTC)
+0 21 1 * * /home/ubuntu/fullnode-resync.sh >> /home/ubuntu/fullnode-resync.log 2>&1
+```
+
+**실행 흐름**:
+1. Lock 파일 획득 (PID 기반 중복 실행 방지)
+2. 24시간 쿨다운 확인 (최근 resync로부터)
+3. Pre-flight checks (Validator 실행 확인, 디스크 상태 기록)
+4. Faucet 서비스 중지
+5. Fullnode 서비스 중지
+6. Fullnode DB 삭제 (`~/full_node_db/`)
+7. Fullnode 서비스 시작 (genesis부터 재동기화)
+8. 동기화 진행 모니터링 (5분 간격, 최대 6시간)
+9. Faucet 서비스 재시작
+10. 완료 보고 (SNS 알림)
+
+**영향**:
+
+| 항목 | 영향 |
+|------|------|
+| RPC | 3-6시간 중단 (재동기화 중) |
+| Faucet | RPC 복구 후 자동 재시작 |
+| Validator/합의 | 영향 없음 |
+| 온체인 데이터 | 보존 (Validator DB 유지) |
+
+**안전장치**:
+- Lock 파일 (`~/.fullnode-resync.lock`): PID 기반 중복 실행 방지 (stale lock 자동 정리)
+- 24시간 쿨다운: 무한 루프 방지 (`~/.last-resync-time`)
+- Validator 실행 확인: 미실행 시 resync 거부
+- fullnode-restart cron과 충돌 방지: lock 체크로 스킵 (Section 4.8)
+- checkpoint-monitor와 충돌 방지: lock 체크로 스킵 (Section 4.7)
+- SNS 알림: 시작/완료/실패/타임아웃 각 단계별 알림
+
+**수동 실행**:
+```bash
+# 직접 실행 (포그라운드)
+/home/ubuntu/fullnode-resync.sh
+
+# 백그라운드 실행
+nohup /home/ubuntu/fullnode-resync.sh >> /home/ubuntu/fullnode-resync.log 2>&1 &
+```
+
+**로그 확인**:
+```bash
+cat ~/fullnode-resync.log
+tail -20 ~/fullnode-resync.log
+```
+
+**관련 파일**:
+
+| 파일 | 역할 |
+|------|------|
+| `~/fullnode-resync.sh` | 메인 재동기화 스크립트 |
+| `~/fullnode-resync-trigger.sh` | 디스크 임계값 체크 트리거 |
+| `~/fullnode-resync.log` | 실행 이력 로그 (1MB 자체 로테이션) |
+| `~/.fullnode-resync.lock` | 중복 실행 방지 Lock (PID 기반) |
+| `~/.last-resync-time` | 마지막 resync 시각 (쿨다운용) |
 
 ---
 
@@ -731,6 +886,66 @@ Fullnode는 경고만 표시하고 설정값(50)을 유지.
 - Security Group SSH IP를 동적 IP 환경에서 관리할 대책 필요
 - 디스크 장애 시 full_node_db 삭제로 대량 공간 확보 가능 (Fullnode는 자동 재구축)
 
+### 5.11 V7 Fullnode 메모리 leak 및 스왑 소진 대응 (2026-02-07~09)
+
+**증상**:
+- Node 1 메모리 80%+ 사용, 스왑 2GB 완전 소진 (100%)
+- Fullnode RSS가 시간당 ~600MB~2.2GB 증가 (재시작 후 약 6-14시간 만에 임계치 도달)
+- OOM killer 발동 위험
+
+**원인 분석**:
+- SUI Fullnode의 RocksDB 캐시 및 인덱싱 메모리가 운영 시간에 비례하여 증가
+- Node 1에서 Validator(2.9GB) + Fullnode(최대 9.9GB) + proverServer(620MB) 동시 운영
+- 16GB RAM에서 합산 메모리가 13-14GB 도달 시 스왑 진입
+
+**조치 (3단계)**:
+
+| 단계 | 조치 | 효과 |
+|------|------|------|
+| 1 | **스왑 확장 2GB → 4GB** (2026-02-07) | OOM 위험 완화, 스왑 소진까지 시간 확보 |
+| 2 | **Fullnode 수동 재시작** | RSS 9.9GB → 781MB 즉시 해제, RPC ~60-90초 중단 |
+| 3 | **Fullnode 자동 재시작 cron 설정** (2026-02-08) | 6시간마다 자동 재시작으로 메모리 관리 자동화 |
+
+**스왑 확장 절차** (무중단):
+```bash
+# 1. 새 4GB 스왑파일 생성 및 활성화 (기존 스왑 유지한 채)
+sudo fallocate -l 4G /swapfile_new
+sudo chmod 600 /swapfile_new
+sudo mkswap /swapfile_new
+sudo swapon /swapfile_new      # 총 6GB 스왑 (2+4)
+
+# 2. 기존 스왑 비활성화 및 교체
+sudo swapoff /swapfile           # 기존 2GB 내용이 RAM+새 스왑으로 이동
+sudo rm /swapfile
+sudo swapoff /swapfile_new
+sudo mv /swapfile_new /swapfile
+sudo swapon /swapfile            # 4GB 스왑 활성화
+
+# 3. fstab 확인 (기존 /swapfile 항목 유지)
+grep swap /etc/fstab
+```
+
+**자동 재시작 효과 (cron 로그)**:
+```
+[2026-02-08 12:00] Before: RAM 11722MB, Fullnode RSS 7745MB → After: RAM 4148MB ✓
+[2026-02-08 18:00] Before: RAM 11469MB, Fullnode RSS 7816MB → After: RAM 3873MB ✓
+[2026-02-09 00:00] Before: RAM 10911MB, Fullnode RSS 7254MB → After: RAM 3968MB ✓
+```
+
+6시간 간격으로 Fullnode RSS가 7-8GB에 도달한 시점에 재시작, 메모리를 ~4GB로 해제.
+스왑 사용량도 2GB(100%) → 300-600MB(7-16%)로 안정화.
+
+**현재 상태 (2026-02-09)**:
+- Node 1 메모리: 4.8GB/15GB (32%), 스왑: 624MB/4GB (16%)
+- 디스크: 39% (pruning 작동, 하루 ~1GB 증가로 안정화)
+- cron 3회 연속 정상 실행 확인
+
+**교훈**:
+- Fullnode 메모리 leak은 SUI 노드의 알려진 특성 (RocksDB 캐시 증가)
+- 16GB RAM에서 Validator+Fullnode 동시 운영 시 정기 재시작 필수
+- 스왑 확장 시 기존 스왑을 유지한 채 새 파일을 먼저 활성화하면 무중단 교체 가능
+- Fullnode 재시작은 합의에 영향 없음 (RPC만 ~90초 중단)
+
 ---
 
 ## 6. 모니터링 명령어
@@ -1039,15 +1254,13 @@ V7에서 NSN faucet 설정:
 
 ```bash
 # /etc/systemd/system/nasun-faucet.service
-ExecStart=/home/ubuntu/sui-faucet --host-ip 0.0.0.0 --port 5003 --amount 100000000000
-# --amount 100 NSN × --num-coins 5 (기본값) = 500 NSN 총
+ExecStart=/home/ubuntu/sui-faucet --host-ip 0.0.0.0 --port 5003 --amount 20000000000
+# --amount 20 NSN × --num-coins 5 (기본값) = 100 NSN/요청
 ```
 
 | 버전 | 설정 | 결과 |
 |------|------|------|
-| V7 (현재) | `--amount 100000000000` | 500 NSN (100×5) |
-
-> **참고**: 필요 시 `--amount 20000000000`으로 변경하여 100 NSN (20×5)으로 줄일 수 있음.
+| V7 (현재) | `--amount 20000000000` | 100 NSN (20×5) |
 
 ---
 
@@ -1065,3 +1278,5 @@ ExecStart=/home/ubuntu/sui-faucet --host-ip 0.0.0.0 --port 5003 --amount 1000000
 | 4.1.0 | 2026-01-27 | **중앙화된 ID 관리 시스템 도입** (@nasun/devnet-config), Section 8 추가, devnet 리셋 워크플로우 단순화 (10+ 파일 → 1개 JSON) | Claude Code |
 | 5.0.0 | 2026-02-04 | **V7 리셋** (Chain ID: 272218f1), Node 1 t3.xlarge(16GB) 업그레이드, 15개 컨트랙트 3-tier 배포, 디스크 100% 인시던트(EBS 100GB 확장) | Claude Code |
 | 5.1.0 | 2026-02-04 | V7 배포 방법론 문서화 (Section 8.7), `test-publish --pubfile-path` 패턴, 3-tier 배포 순서, post-deploy 공유 객체 생성 절차, devnet-ids.json V7 구조 반영 | Claude Code |
+| 5.2.0 | 2026-02-09 | **V7 운영 안정화 조치 문서화**: Fullnode 메모리 leak 대응 (스왑 4GB 확장, 6시간 자동 재시작 cron), DB pruning 작동 확인 (epoch 50+), 문제 해결 사례 5.11 추가, 모니터링 4.8 추가, Faucet 설정 수정 | Claude Code |
+| 5.3.0 | 2026-02-17 | **Fullnode DB 재동기화 자동화**: EBS 200GB 확장 (양 노드), fullnode-resync.sh (PID lock, 24h 쿨다운, SNS 알림), resync-trigger.sh (80% 임계값), checkpoint-monitor/fullnode-restart에 lock 연동, Section 4.9 추가 | Claude Code |

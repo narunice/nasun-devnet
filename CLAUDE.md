@@ -369,8 +369,8 @@ Settings → Network → Custom RPC URL
 
 | 노드         | IP          | 역할                                | 인스턴스 타입 | EBS      |
 | ------------ | ----------- | ----------------------------------- | ------------- | -------- |
-| nasun-node-1 | 3.38.127.23 | Validator + Fullnode (RPC) + Faucet | t3.xlarge (16GB) | 100GB gp3 |
-| nasun-node-2 | 3.38.76.85  | Validator                           | t3.large (8GB)   | 100GB gp3 |
+| nasun-node-1 | 3.38.127.23 | Validator + Fullnode (RPC) + Faucet | t3.xlarge (16GB) | 200GB gp3 |
+| nasun-node-2 | 3.38.76.85  | Validator                           | t3.large (8GB)   | 200GB gp3 |
 
 ```bash
 # Node 1 (주 노드) 접속
@@ -731,7 +731,7 @@ V6 fullnode 동기화 문제(state execution lag) 해결 및 Node 1 메모리 �
 | Chain ID | `12bf3808` | `272218f1` |
 | Node 1 인스턴스 | t3.large (8GB) | **t3.xlarge (16GB)** |
 | Node 2 인스턴스 | t3.large (8GB) | t3.large (8GB, 변경 없음) |
-| 월 비용 | ~$143.8 | **~$197.9** |
+| 월 비용 | ~$143.8 | **~$213.9** |
 | 아키텍처 | 2-node | 2-node (변경 없음) |
 
 ### 배포된 컨트랙트 (V7)
@@ -742,12 +742,21 @@ V6 fullnode 동기화 문제(state execution lag) 해결 및 Node 1 메모리 �
 |----------|------|
 | 모든 컨트랙트 | ⏳ 재배포 대기 |
 
+### V7 운영 안정화 조치 (2026-02-07~09)
+
+| 조치 | 내용 | 효과 |
+|------|------|------|
+| **스왑 확장** | Node 1: 2GB → 4GB | OOM 위험 완화 |
+| **Fullnode 자동 재시작** | 6시간 cron (00/06/12/18 UTC) | 메모리 leak 자동 관리, RSS 7-8GB → ~800MB |
+| **DB Pruning 확인** | epoch 50+ 이후 작동 시작 | 디스크 증가 ~11GB/일 → ~1GB/일로 안정화 |
+
 ### 인시던트 노트
 
 - **t3a 인스턴스 불가**: ap-northeast-2b AZ에서 t3a (AMD) 인스턴스를 지원하지 않아 t3.xlarge (Intel)로 대체
 - **YAML 중복 필드**: genesis 생성 후 pruning config 추가 시 `authority-store-pruning-config` 중복으로 node 크래시 → 중복 섹션 제거로 해결
 - **Fullnode db-path**: 상대경로로 생성되어 PermissionDenied → 절대경로로 수정
 - **Validator 미재시작**: 인스턴스 재부팅 후 V6 데이터로 자동시작된 validator를 수동 재시작 필요
+- **Fullnode 메모리 leak**: RSS ~600MB~2.2GB/시간 증가, 6시간 자동 재시작으로 관리
 
 ---
 
