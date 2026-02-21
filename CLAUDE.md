@@ -91,7 +91,8 @@ Security expectations:
 
 - Infrastructure changes are security-critical by default
 - Both validators must run identical genesis for consensus
-- Single node failure halts the 2-node devnet
+- Single validator failure halts the 2-validator devnet (f=0)
+- Fullnode (node-3) failure only affects RPC/indexer, not consensus
 
 ---
 
@@ -106,9 +107,10 @@ Security expectations:
 | Native Token         | NSN (최소단위: SOE)               |
 | Total Supply         | 10,000,000,000 NSN (100억)        |
 | Consensus            | Narwhal/Bullshark (SUI default)   |
-| Validators           | 2 nodes (Node 1: t3.xlarge, Node 2: t3.large) |
+| Validators           | 2 nodes (Node 1: m6i.large, Node 2: m6i.large) |
+| Fullnode + Indexer   | Node 3 (m6i.xlarge) — dedicated   |
 | RPC Endpoint (HTTPS) | https://rpc.devnet.nasun.io       |
-| RPC Endpoint (HTTP)  | http://3.38.127.23:9000           |
+| RPC Endpoint (HTTP)  | http://54.180.61.196:9000         |
 | Faucet (HTTPS)       | https://faucet.devnet.nasun.io    |
 | Faucet (HTTP)        | http://3.38.127.23:5003           |
 | Faucet Amount        | 100 NSN/요청 (20×5개 코인)        |
@@ -131,7 +133,7 @@ Security expectations:
 │  ─────────────────        ─────────────────      ─────────────────  │
 │  공식 웹사이트              블록체인 노드           블록 탐색기        │
 │  • 리더보드                 • SUI 포크             • TX/Block 조회    │
-│  • NFT 이벤트               • 2노드 Validator      • 주소/객체 조회   │
+│  • NFT 이벤트               • 3노드 (2V+1F)        • 주소/객체 조회   │
 │  • OAuth 인증               • Faucet 서비스        • 네트워크 상태    │
 │  • MetaMask 연동            • 스마트 컨트랙트      • 검색 기능        │
 │                                                                     │
@@ -316,25 +318,31 @@ curl -X POST http://localhost:9000 \
 ## RPC 테스트 명령어
 
 ```bash
-# Chain ID 확인
-curl -X POST http://3.38.127.23:9000 \
+# Chain ID 확인 (node-3 Fullnode)
+curl -X POST http://54.180.61.196:9000 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"sui_getChainIdentifier","params":[]}'
 
 # 최신 체크포인트
-curl -X POST http://3.38.127.23:9000 \
+curl -X POST http://54.180.61.196:9000 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"sui_getLatestCheckpointSequenceNumber","params":[]}'
 
 # 총 트랜잭션 수
-curl -X POST http://3.38.127.23:9000 \
+curl -X POST http://54.180.61.196:9000 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"sui_getTotalTransactionBlocks","params":[]}'
 
-# Faucet 토큰 요청
+# Faucet 토큰 요청 (node-1)
 curl -X POST http://3.38.127.23:5003/gas \
   -H "Content-Type: application/json" \
   -d '{"FixedAmountRequest":{"recipient":"<YOUR_ADDRESS>"}}'
+
+# Explorer API 헬스체크 (node-3)
+curl http://54.180.61.196:3200/api/v1/health
+
+# Indexer 체크포인트 확인 (node-3)
+ssh ubuntu@54.180.61.196 "PGPASSWORD=indexer_ec2_2026 psql -U sui_indexer -d sui_indexer -c \"SELECT MAX(sequence_number) FROM checkpoints;\""
 ```
 
 ## CLI 사용법 (nasun alias)
@@ -367,38 +375,66 @@ Settings → Network → Custom RPC URL
 
 ## EC2 인프라 및 SSH 접속
 
-| 노드         | IP          | 역할                                | 인스턴스 타입 | EBS      |
-| ------------ | ----------- | ----------------------------------- | ------------- | -------- |
-| nasun-node-1 | 3.38.127.23 | Validator + Fullnode (RPC) + Faucet | t3.xlarge (16GB) | 200GB gp3 |
-| nasun-node-2 | 3.38.76.85  | Validator                           | t3.large (8GB)   | 200GB gp3 |
+| 노드         | IP             | 역할                                | 인스턴스 타입     | EBS      |
+| ------------ | -------------- | ----------------------------------- | ----------------- | -------- |
+| nasun-node-1 | 3.38.127.23    | Validator + Faucet + Nginx          | m6i.large (8GB)   | 200GB gp3 |
+| nasun-node-2 | 3.38.76.85     | Validator + zkLogin Prover (Docker) | m6i.large (8GB)   | 200GB gp3 |
+| nasun-node-3 | 54.180.61.196  | Fullnode (RPC) + sui-indexer + PostgreSQL + Explorer API + Nginx | m6i.xlarge (16GB) | 300GB gp3 |
 
 ```bash
-# Node 1 (주 노드) 접속
+# Node 1 접속
 ssh -i ~/.ssh/.awskey/nasun-devnet-key.pem ubuntu@3.38.127.23
 
 # Node 2 접속
 ssh -i ~/.ssh/.awskey/nasun-devnet-key.pem ubuntu@3.38.76.85
+
+# Node 3 접속
+ssh -i ~/.ssh/.awskey/nasun-devnet-key.pem ubuntu@54.180.61.196
 ```
 
 ## systemd 서비스 관리
 
 EC2 서버에서 노드는 systemd 서비스로 관리됩니다.
 
+**Node 1 서비스 (3.38.127.23):**
+
 | 서비스            | 설명                  | 포트       |
 | ----------------- | --------------------- | ---------- |
 | `nasun-validator` | Validator 노드        | 8080, 8084 |
-| `nasun-fullnode`  | Fullnode (RPC 서비스) | 9000       |
 | `nasun-faucet`    | Faucet 서비스         | 5003       |
+| `nginx`           | Faucet HTTPS 프록시   | 443        |
+
+> Note: `nasun-fullnode` 서비스는 node-3 이전 후 disabled 상태.
+
+**Node 2 서비스 (3.38.76.85):**
+
+| 서비스            | 설명                             | 포트       |
+| ----------------- | -------------------------------- | ---------- |
+| `nasun-validator` | Validator 노드                   | 8080, 8084 |
+| `docker`          | zkLogin Prover (docker-compose)  | 8081       |
+
+**Node 3 서비스 (54.180.61.196):**
+
+| 서비스            | 설명                          | 포트       |
+| ----------------- | ----------------------------- | ---------- |
+| `nasun-fullnode`  | Fullnode (RPC 서비스)         | 9000       |
+| `sui-indexer`     | Blockchain indexer (systemd)  | 9185 (metrics) |
+| `postgresql`      | PostgreSQL 16 (sui_indexer DB) | 5432       |
+| `explorer-api`    | Hono REST API (PM2)           | 3200       |
+| `nginx`           | RPC HTTPS + zkprover 프록시   | 443        |
 
 ```bash
-# 서비스 상태 확인
-sudo systemctl status nasun-validator nasun-fullnode nasun-faucet
+# Node 1: Validator + Faucet 상태 확인
+ssh ubuntu@3.38.127.23 "sudo systemctl status nasun-validator nasun-faucet"
 
-# 서비스 재시작
-sudo systemctl restart nasun-validator nasun-fullnode
+# Node 2: Validator + Prover 상태 확인
+ssh ubuntu@3.38.76.85 "sudo systemctl status nasun-validator; docker ps"
 
-# 서비스 로그 확인
-sudo journalctl -u nasun-fullnode -f
+# Node 3: Fullnode + Indexer 상태 확인
+ssh ubuntu@54.180.61.196 "sudo systemctl status nasun-fullnode sui-indexer postgresql; pm2 status"
+
+# Fullnode 로그 확인
+ssh ubuntu@54.180.61.196 "sudo journalctl -u nasun-fullnode -f"
 ```
 
 **중요**: 노드는 반드시 systemd 서비스로 관리해야 합니다. 수동 실행 시 서비스와 충돌합니다.
@@ -440,31 +476,132 @@ logrotate 설정 (`/etc/logrotate.d/rsyslog`):
 - `~/disk-monitor.sh` (매시간 실행)
 - 70% NOTICE / 80% WARNING / 90% CRITICAL 단계별 SNS 알림
 
-## 2-Node Consensus Notes
+## Consensus Notes (2-Validator, 3-Node)
 
-- Minimum viable for Devnet (f=0 Byzantine fault tolerance)
-- Both nodes must be running for consensus to proceed
-- Single node failure halts the network
-- Upgrade to 4+ nodes for production fault tolerance
+- 2 Validators (node-1, node-2): f=0 Byzantine fault tolerance
+- Both validators must be running for consensus to proceed
+- Single validator failure halts the network
+- Fullnode (node-3) is independent — failure only affects RPC/indexer/explorer
+- Never stop both validators simultaneously (Phase 7 lesson)
+- Upgrade to 4+ validators for production fault tolerance
 
-## nginx CORS 설정
+## nginx 설정
 
-EC2 서버 (3.38.127.23)의 nginx 설정 파일: `/etc/nginx/sites-available/nasun-devnet`
+### Node 3 (RPC + zkprover 프록시)
 
-SUI SDK가 사용하는 커스텀 헤더들을 허용하기 위해 CORS 설정이 필요합니다:
+설정 파일: `/etc/nginx/sites-available/nasun-devnet` (54.180.61.196)
 
 ```nginx
-# RPC 엔드포인트 CORS 설정
+# RPC 엔드포인트 (/) → localhost:9000 (Fullnode)
+# CORS 헤더 + proxy_hide_header로 중복 방지
 proxy_hide_header Access-Control-Allow-Origin;
 proxy_hide_header Access-Control-Allow-Methods;
 proxy_hide_header Access-Control-Allow-Headers;
-
 add_header Access-Control-Allow-Origin * always;
 add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
 add_header Access-Control-Allow-Headers "*" always;
+
+# zkLogin Prover (/zkprover/*) → node-2 VPC (172.31.22.235:8081)
+# rate limit: 5r/m per IP, burst=3
 ```
 
 **주의**: 백엔드(SUI RPC)도 CORS 헤더를 추가하므로 `proxy_hide_header`로 중복을 방지해야 합니다.
+
+### Node 1 (Faucet HTTPS 프록시)
+
+설정 파일: `/etc/nginx/sites-available/nasun-devnet` (3.38.127.23)
+- `faucet.devnet.nasun.io` → localhost:5003 (Faucet)
+
+## Indexer Infrastructure (Node 3)
+
+Node 3 (54.180.61.196)에서 sui-indexer + PostgreSQL + Explorer API를 운영합니다.
+이 인프라는 Explorer뿐 아니라 모든 Nasun 프로젝트의 공유 데이터 소스입니다.
+
+### 아키텍처
+
+```
+Node 3 (Fullnode :9000) → data-ingestion-dir → sui-indexer → PostgreSQL → Explorer API (:3200)
+                                                                                  ↑
+                                                  Production EC2 nginx: /api/v1/* → node-3:3200
+```
+
+### sui-indexer (systemd)
+
+- **호스트**: Node 3 (54.180.61.196)
+- **바이너리**: `/home/ubuntu/nasun-node/sui-indexer` (Rust, Sui v1.63.3)
+- **systemd**: `/etc/systemd/system/sui-indexer.service`
+- **ingestion 모드**: local file (`data-ingestion-path`, Fullnode과 같은 노드)
+- **Metrics**: port 9185 (Fullnode이 9184 사용)
+- **OOM 보호**: `OOMScoreAdjust=500`, `MemoryMax=800M`
+- **CPU 제한**: `CPUQuota=50%`
+- **data-ingestion-dir**: `/home/ubuntu/nasun-node/data-ingestion` (Fullnode이 생성, indexer가 `--gc-checkpoint-files`로 자동 삭제)
+
+```bash
+# SSH to node-3
+ssh -i ~/.ssh/.awskey/nasun-devnet-key.pem ubuntu@54.180.61.196
+
+# 상태 확인
+sudo systemctl status sui-indexer
+
+# 로그 확인
+sudo journalctl -u sui-indexer -f --no-pager
+
+# 재시작
+sudo systemctl restart sui-indexer
+```
+
+### PostgreSQL 16
+
+- **호스트**: Node 3 (54.180.61.196)
+- **DB**: `sui_indexer`, **User**: `sui_indexer`
+- **설정**: `shared_buffers=4GB`, `effective_cache_size=12GB`, `work_mem=64MB`, `max_connections=20`
+
+```bash
+# DB 상태 확인
+sudo systemctl status postgresql
+psql -U sui_indexer -d sui_indexer -c "SELECT COUNT(*) FROM transactions;"
+```
+
+### Explorer API (PM2)
+
+- **호스트**: Node 3 (54.180.61.196)
+- **코드**: `nasun-monorepo/apps/network-explorer/api-server/`
+- **포트**: 3200
+- **환경변수**: `~/explorer-api/.env` (DATABASE_URL → localhost PostgreSQL)
+- **Security Group**: Port 3200은 Production EC2 (43.200.67.52/32)에만 개방
+
+```bash
+# PM2 상태
+pm2 status explorer-api
+
+# 재시작 (환경변수 로드 필요)
+set -a && source ~/explorer-api/.env && set +a
+pm2 restart explorer-api --update-env
+
+# 헬스체크
+curl http://localhost:3200/api/v1/health
+```
+
+### Devnet 리셋 시 인덱서 재초기화
+
+```bash
+# Node 3에서 실행
+ssh -i ~/.ssh/.awskey/nasun-devnet-key.pem ubuntu@54.180.61.196
+
+# 1. 인덱서 중지
+sudo systemctl stop sui-indexer
+
+# 2. DB 초기화
+sudo -u postgres psql -c "DROP DATABASE sui_indexer;"
+sudo -u postgres psql -c "CREATE DATABASE sui_indexer OWNER sui_indexer;"
+
+# 3. 인덱서 재시작 (새 체크포인트부터 재인덱싱)
+sudo systemctl start sui-indexer
+
+# 4. API 서버 재시작
+set -a && source ~/explorer-api/.env && set +a
+pm2 restart explorer-api --update-env
+```
 
 ## 관련 프로젝트
 
@@ -726,13 +863,14 @@ V6 fullnode 동기화 문제(state execution lag) 해결 및 Node 1 메모리 �
 
 ### V7 변경 사항
 
-| 항목 | V6 (이전) | V7 (현재) |
-|------|-----------|-----------|
-| Chain ID | `12bf3808` | `272218f1` |
-| Node 1 인스턴스 | t3.large (8GB) | **t3.xlarge (16GB)** |
-| Node 2 인스턴스 | t3.large (8GB) | t3.large (8GB, 변경 없음) |
-| 월 비용 | ~$143.8 | **~$213.9** |
-| 아키텍처 | 2-node | 2-node (변경 없음) |
+| 항목 | V6 (이전) | V7 (초기) | V7 (3-node 마이그레이션 후, 2026-02-21) |
+|------|-----------|-----------|----------------------------------------|
+| Chain ID | `12bf3808` | `272218f1` | `272218f1` (변경 없음) |
+| Node 1 | t3.large (8GB) | t3.xlarge (16GB) | **m6i.large (8GB)** — Validator + Faucet |
+| Node 2 | t3.large (8GB) | t3.large (8GB) | **m6i.large (8GB)** — Validator + Prover |
+| Node 3 | - | - | **m6i.xlarge (16GB)** — Fullnode + Indexer + Explorer |
+| 아키텍처 | 2-node | 2-node | **3-node** |
+| 월 비용 | ~$143.8 | ~$213.9 | **~$332** (RI 적용시 ~$241) |
 
 ### 배포된 컨트랙트 (V7)
 
@@ -750,6 +888,22 @@ V6 fullnode 동기화 문제(state execution lag) 해결 및 Node 1 메모리 �
 | **Fullnode 자동 재시작** | 6시간 cron (00/06/12/18 UTC) | 메모리 leak 자동 관리, RSS 7-8GB → ~800MB |
 | **DB Pruning 확인** | epoch 50+ 이후 작동 시작 | 디스크 증가 ~11GB/일 → ~1GB/일로 안정화 |
 
+### 3-Node 마이그레이션 (2026-02-21)
+
+t3 Burstable 과부하 해결을 위해 m6i dedicated 인스턴스 3-node 아키텍처로 전환:
+- node-1 과부하 (Validator+Fullnode+Faucet+Prover+Nginx, OOM 크래시)
+- node-2 CPU 초과 (sui-indexer stuck, CPU load 2.5)
+- 역할 분리: Validator 전용 (node-1,2) + Fullnode/Indexer 전용 (node-3)
+
+| 마이그레이션 항목 | 변경 |
+|------------------|------|
+| node-1 | t3.xlarge → m6i.large, Fullnode/Prover 제거 |
+| node-2 | t3.large → m6i.large, Indexer/PostgreSQL/Explorer 제거, Prover 추가 |
+| node-3 | 신규 m6i.xlarge, Fullnode+Indexer+PostgreSQL+Explorer+Nginx |
+| DNS | rpc.devnet.nasun.io → 54.180.61.196 (node-3) |
+| Faucet RPC | localhost:9000 → 172.31.25.242:9000 (node-3 VPC) |
+| zkprover | node-1 Docker → node-2 Docker, nginx proxy via VPC |
+
 ### 인시던트 노트
 
 - **t3a 인스턴스 불가**: ap-northeast-2b AZ에서 t3a (AMD) 인스턴스를 지원하지 않아 t3.xlarge (Intel)로 대체
@@ -757,6 +911,8 @@ V6 fullnode 동기화 문제(state execution lag) 해결 및 Node 1 메모리 �
 - **Fullnode db-path**: 상대경로로 생성되어 PermissionDenied → 절대경로로 수정
 - **Validator 미재시작**: 인스턴스 재부팅 후 V6 데이터로 자동시작된 validator를 수동 재시작 필요
 - **Fullnode 메모리 leak**: RSS ~600MB~2.2GB/시간 증가, 6시간 자동 재시작으로 관리
+- **data-ingestion-dir 위치**: fullnode.yaml 최상위가 아닌 `checkpoint-executor-config:` 하위에 배치해야 함
+- **sui-indexer CLI 순서**: `--metrics-address`는 global flag (indexer 서브커맨드 앞), `--data-ingestion-path`는 서브커맨드 flag
 
 ---
 
@@ -795,9 +951,11 @@ V6 fullnode 동기화 문제(state execution lag) 해결 및 Node 1 메모리 �
 | Governance | ✅ 배포 완료 |
 | Baram | ✅ 배포 완료 |
 
-### 아키텍처 (2-node)
+### 아키텍처 (V6: 2-node, V7 마이그레이션 전)
 
 | 노드 | IP | 역할 |
 |------|-----|------|
-| nasun-node-1 | 3.38.127.23 | Validator + Fullnode + Faucet + nginx |
-| nasun-node-2 | 3.38.76.85 | Validator |
+| nasun-node-1 | 3.38.127.23 | Validator + Fullnode + Faucet + zkLogin Prover + nginx |
+| nasun-node-2 | 3.38.76.85 | Validator + sui-indexer + PostgreSQL + Explorer API |
+
+> V7 3-node 마이그레이션 (2026-02-21) 이후 현재 아키텍처는 "EC2 인프라 및 SSH 접속" 섹션 참조.

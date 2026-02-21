@@ -1,10 +1,10 @@
 # Nasun Devnet 운영 가이드
 
-**Version**: 5.3.0
+**Version**: 7.0.0
 **Created**: 2025-12-23
-**Updated**: 2026-02-17
+**Updated**: 2026-02-21
 **Author**: Claude Code
-**Status**: 운영 중 (V7, 2-Node)
+**Status**: 운영 중 (V7, 3-Node m6i)
 
 ---
 
@@ -19,6 +19,7 @@
 7. [긴급 대응 절차](#7-긴급-대응-절차)
 8. [중앙화된 ID 관리](#8-중앙화된-id-관리-nasundevnet-config)
 9. [향후 계획](#9-향후-계획)
+10. [Indexer Infrastructure](#10-indexer-infrastructure-node-3)
 
 ---
 
@@ -38,13 +39,14 @@
 
 ### 1.2 엔드포인트
 
-| 서비스 | HTTPS | HTTP |
-|--------|-------|------|
-| RPC | https://rpc.devnet.nasun.io | http://3.38.127.23:9000 |
-| Faucet | https://faucet.devnet.nasun.io | http://3.38.127.23:5003 |
-| Explorer | https://explorer.devnet.nasun.io | - |
+| 서비스 | HTTPS | HTTP | 호스트 |
+|--------|-------|------|--------|
+| RPC | https://rpc.devnet.nasun.io | http://54.180.61.196:9000 | Node 3 |
+| Faucet | https://faucet.devnet.nasun.io | http://3.38.127.23:5003 | Node 1 |
+| Explorer | https://explorer.devnet.nasun.io | - | prod-ec2 → Node 3 |
+| Explorer API | - | http://54.180.61.196:3200 | Node 3 |
 
-> **참고**: V6부터 2-node 아키텍처로 변경. RPC/Faucet은 Node 1 (3.38.127.23)에서 서비스됩니다.
+> **참고**: 2026-02-21 3-node 마이그레이션 완료. RPC는 Node 3, Faucet은 Node 1에서 서비스됩니다.
 
 ### 1.3 개발 히스토리
 
@@ -63,23 +65,24 @@
 | **V5 복구** | Execution engine halt → authorities_db 초기화 복구 | 2026-01-23 |
 | **V6 리셋** | 2-Node 아키텍처로 전환, 전체 Genesis 리셋 | 2026-01-27 |
 | **디스크 인시던트** | EBS 48GB→100GB 확장, 3-tier 모니터링 | 2026-02-03 |
-| **V7 리셋** | Node 1 t3.xlarge 업그레이드, fullnode sync 문제 해결 | **2026-02-04** |
+| **V7 리셋** | Node 1 t3.xlarge 업그레이드, fullnode sync 문제 해결 | 2026-02-04 |
+| **3-Node m6i 마이그레이션** | t3→m6i 전환, 역할 분리 (2V+1F), Node 3 신규 | **2026-02-21** |
 
 ---
 
 ## 2. 인프라 현황
 
-### 2.1 EC2 인스턴스 (2-Node 아키텍처, V7)
+### 2.1 EC2 인스턴스 (3-Node m6i 아키텍처, 2026-02-21)
 
 | 노드 | IP | 역할 | 인스턴스 타입 | Instance ID | 상태 |
 |------|-----|------|--------------|-------------|------|
-| nasun-node-1 | 3.38.127.23 | **Validator + Fullnode + Faucet + nginx** | **t3.xlarge (16GB)** | i-040cc444762741157 | ✅ 운영 중 |
-| nasun-node-2 | 3.38.76.85 | **Validator Only** | t3.large (8GB) | i-049571787762752ba | ✅ 운영 중 |
-| nasun-node-3 | 52.78.117.96 | (중지됨) | t3.large | i-0385f4fe2c8b7bc81 | ⏹️ 중지 |
+| nasun-node-1 | 3.38.127.23 | **Validator + Faucet + Nginx** | **m6i.large (8GB)** | i-040cc444762741157 | ✅ 운영 중 |
+| nasun-node-2 | 3.38.76.85 | **Validator + zkLogin Prover (Docker)** | **m6i.large (8GB)** | i-049571787762752ba | ✅ 운영 중 |
+| nasun-node-3 | 54.180.61.196 | **Fullnode (RPC) + sui-indexer + PostgreSQL + Explorer API + Nginx** | **m6i.xlarge (16GB)** | i-0c3b43a7d96de2f09 | ✅ 운영 중 |
 
-> **인스턴스 업그레이드 (2026-02-04 V7)**: Node 1을 t3.large(8GB) → t3.xlarge(16GB)로 업그레이드.
-> Fullnode + Validator + Faucet을 동시에 운영하기 위한 메모리 확보.
-> t3a (AMD)는 ap-northeast-2b AZ에서 미지원하여 t3 (Intel) 유지.
+> **3-Node 마이그레이션 (2026-02-21)**: t3 Burstable 과부하 해결을 위해 m6i dedicated 인스턴스로 전환.
+> 역할 분리: Validator 전용 (node-1,2) + Fullnode/Indexer 전용 (node-3).
+> 이전 node-3 (i-0385f4fe2c8b7bc81, t3.large, 52.78.117.96)는 terminated.
 
 **Auto Recovery 설정** (2026-01-01):
 | 알람 이름 | 인스턴스 ID | 상태 |
@@ -91,13 +94,13 @@
 
 ### 2.2 스토리지
 
-| 노드 | EBS | 주요 디렉토리 | 현재 사용량 (2026-02-17) |
-|------|-----|--------------|-------------------------|
-| Node 1 | **200GB gp3** | `~/.sui/sui_config/authorities_db/` (28GB), `~/full_node_db/` (41GB) | 42% (~80GB) |
-| Node 2 | **200GB gp3** | `~/.sui/sui_config/authorities_db/` | 18% (~34GB) |
+| 노드 | EBS | 주요 디렉토리 | 비고 |
+|------|-----|--------------|------|
+| Node 1 | **200GB gp3** | `~/.sui/sui_config/authorities_db/` | Fullnode 제거됨 (node-3으로 이전) |
+| Node 2 | **200GB gp3** | `~/.sui/sui_config/authorities_db/` | Indexer/PostgreSQL 제거됨 (node-3으로 이전) |
+| Node 3 | **300GB gp3** | `~/full_node_db/`, PostgreSQL data | Fullnode + Indexer + PostgreSQL |
 
-> **EBS 확장 (2026-02-17)**: 양 노드 100GB → 200GB 확장. Fullnode DB ~3.2GB/일, Validator DB ~2.2GB/일 증가 대응.
-> 월 $8 추가 비용 (gp3 $0.08/GB/월). Fullnode DB 재동기화 자동화와 병행하여 디스크 관리.
+> **3-Node 마이그레이션 (2026-02-21)**: Node 3에 300GB gp3 할당. Fullnode DB + PostgreSQL + data-ingestion 파일 수용.
 
 **DB Pruning 설정** (현재 상태):
 ```yaml
@@ -118,8 +121,9 @@ authority-store-pruning-config:
 
 | 노드 | 스왑 파일 | 크기 | 비고 |
 |------|----------|------|------|
-| Node 1 | /swapfile | **4GB** | 2026-02-07 확장 (2GB→4GB), Fullnode 메모리 leak 대응 |
+| Node 1 | /swapfile | **4GB** | 2026-02-07 확장 (2GB→4GB) |
 | Node 2 | /swapfile | 2GB | |
+| Node 3 | /swapfile | 4GB | 2026-02-21 마이그레이션 시 설정 |
 
 ```bash
 # 스왑 상태 확인
@@ -133,67 +137,91 @@ sudo swapon /swapfile
 ### 2.4 SSH 접속
 
 ```bash
-# Node 1 (Validator + Fullnode + Faucet + nginx)
+# Node 1 (Validator + Faucet + Nginx)
 ssh -i ~/.ssh/.awskey/nasun-devnet-key.pem ubuntu@3.38.127.23
 
-# Node 2 (Validator)
+# Node 2 (Validator + zkLogin Prover)
 ssh -i ~/.ssh/.awskey/nasun-devnet-key.pem ubuntu@3.38.76.85
+
+# Node 3 (Fullnode + Indexer + PostgreSQL + Explorer API + Nginx)
+ssh -i ~/.ssh/.awskey/nasun-devnet-key.pem ubuntu@54.180.61.196
+
+# Production EC2 (Explorer 프론트엔드 nginx)
+ssh -i ~/.ssh/nasun-prod-key.pem ec2-user@43.200.67.52
 ```
 
 ---
 
 ## 3. 서비스 관리
 
-### 3.1 systemd 서비스 배치 (2-Node 아키텍처, V6)
+### 3.1 systemd 서비스 배치 (3-Node m6i 아키텍처, 2026-02-21)
 
 | 노드 | 서비스 | 설명 | 포트 |
 |------|--------|------|------|
 | Node 1 | `nasun-validator` | Validator | 8080, 8084 |
-| Node 1 | `nasun-fullnode` | Fullnode (RPC) | 9000 |
 | Node 1 | `nasun-faucet` | Faucet | 5003 |
-| Node 1 | `nginx` | HTTPS 리버스 프록시 | 443 |
+| Node 1 | `nginx` | Faucet HTTPS 프록시 | 443 |
 | Node 2 | `nasun-validator` | Validator | 8080, 8084 |
+| Node 2 | `docker` (zkprover) | zkLogin Prover (docker-compose) | 8081 |
+| Node 3 | `nasun-fullnode` | Fullnode (RPC) | 9000 |
+| Node 3 | `sui-indexer` | Blockchain indexer (systemd) | 9185 (metrics) |
+| Node 3 | `postgresql` | PostgreSQL 16 (sui_indexer DB) | 5432 |
+| Node 3 | `explorer-api` | Hono REST API (PM2) | 3200 |
+| Node 3 | `nginx` | RPC HTTPS + zkprover 프록시 | 443 |
+
+> Note: Node 1의 `nasun-fullnode` 서비스는 disabled 상태 (node-3으로 이전됨).
+> Node 2의 `sui-indexer`, `postgresql`, `explorer-api`도 disabled/제거됨.
 
 ### 3.2 서비스 관리 명령어
 
 ```bash
-# 서비스 상태 확인
-sudo systemctl status nasun-validator nasun-fullnode nasun-faucet
+# Node 1: Validator + Faucet
+ssh ubuntu@3.38.127.23 "sudo systemctl status nasun-validator nasun-faucet"
 
-# 서비스 재시작
-sudo systemctl restart nasun-validator nasun-fullnode
+# Node 2: Validator + Prover
+ssh ubuntu@3.38.76.85 "sudo systemctl status nasun-validator; docker ps"
 
-# 서비스 로그 확인
-sudo journalctl -u nasun-fullnode -f
-sudo journalctl -u nasun-validator -f
+# Node 3: Fullnode + Indexer + Explorer
+ssh ubuntu@54.180.61.196 "sudo systemctl status nasun-fullnode sui-indexer postgresql; pm2 status"
 
-# 서비스 시작/중지
-sudo systemctl start nasun-fullnode
-sudo systemctl stop nasun-fullnode
+# Fullnode 로그 (Node 3)
+ssh ubuntu@54.180.61.196 "sudo journalctl -u nasun-fullnode -f"
+
+# Validator 로그 (Node 1 or 2)
+ssh ubuntu@3.38.127.23 "sudo journalctl -u nasun-validator -f"
 ```
 
 ### 3.3 서비스 설정 파일 위치
 
-```
-/etc/systemd/system/
-├── nasun-validator.service
-├── nasun-fullnode.service
-└── nasun-faucet.service
-```
+**Node 1** (`/etc/systemd/system/`):
+- `nasun-validator.service` — Validator
+- `nasun-faucet.service` — Faucet (RPC → node-3 VPC 172.31.25.242:9000)
+- `nasun-fullnode.service` — **disabled** (node-3으로 이전)
 
-### 3.4 현재 서비스 설정 (Node 1)
+**Node 2** (`/etc/systemd/system/`):
+- `nasun-validator.service` — Validator
+- zkLogin Prover: `~/zkprover/docker-compose.yml` (Docker)
 
-**nasun-fullnode.service**
+**Node 3** (`/etc/systemd/system/`):
+- `nasun-fullnode.service` — Fullnode (RPC)
+- `sui-indexer.service` — Blockchain indexer
+- `postgresql.service` — PostgreSQL 16
+- Explorer API: PM2 (`~/explorer-api/`)
+
+### 3.4 현재 서비스 설정
+
+**Node 1: nasun-faucet.service**
 ```ini
 [Unit]
-Description=Nasun Fullnode (RPC)
-After=network.target nasun-validator.service
+Description=Nasun Devnet Faucet
+After=network.target
 
 [Service]
 Type=simple
 User=ubuntu
 Environment="RUST_LOG=warn"
-ExecStart=/home/ubuntu/sui-node --config-path /home/ubuntu/.sui/sui_config/fullnode.yaml
+Environment="SUI_CONFIG_DIR=/home/ubuntu/.sui/sui_config"
+ExecStart=/home/ubuntu/sui-faucet --host-ip 0.0.0.0 --port 5003 --amount 20000000000
 Restart=always
 RestartSec=10
 
@@ -201,20 +229,47 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-**nasun-faucet.service**
+> Faucet RPC: `client.yaml`의 `rpc` 필드가 `http://172.31.25.242:9000` (node-3 VPC) 참조.
+
+**Node 3: nasun-fullnode.service**
 ```ini
 [Unit]
-Description=Nasun Devnet Faucet
-After=network.target nasun-fullnode.service
+Description=Nasun Fullnode (RPC)
+After=network.target
 
 [Service]
 Type=simple
 User=ubuntu
 Environment="RUST_LOG=warn"
-Environment="SUI_CONFIG_DIR=/home/ubuntu/.sui/sui_config"
-ExecStart=/home/ubuntu/sui-faucet --host-ip 0.0.0.0 --port 5003 --amount 100000000000
+ExecStart=/home/ubuntu/nasun-node/sui-node --config-path /home/ubuntu/nasun-node/fullnode.yaml
 Restart=always
 RestartSec=10
+OOMScoreAdjust=-500
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Node 3: sui-indexer.service**
+```ini
+[Unit]
+Description=Sui Indexer for Nasun Devnet
+After=postgresql.service nasun-fullnode.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+ExecStart=/home/ubuntu/nasun-node/sui-indexer \
+  --database-url postgres://sui_indexer:indexer_ec2_2026@localhost:5432/sui_indexer \
+  --pool-size 5 --metrics-address 0.0.0.0:9185 \
+  indexer --data-ingestion-path /home/ubuntu/nasun-node/data-ingestion \
+  --checkpoint-download-queue-size 10
+Restart=on-failure
+RestartSec=10
+MemoryMax=800M
+CPUQuota=50%
+OOMScoreAdjust=500
 
 [Install]
 WantedBy=multi-user.target
@@ -418,7 +473,10 @@ fi
 | Node 1 | localhost:9000 | validator + fullnode | O |
 | Node 2 | 3.38.127.23:9000 | validator | X |
 
-### 4.8 Fullnode 자동 재시작 (2026-02-08 추가, 2026-02-17 수정)
+### 4.8 Fullnode 자동 재시작 (2026-02-08 추가, 2026-02-17 수정, Node 1 비활성화)
+
+> **2026-02-21**: Node 1의 Fullnode가 Node 3으로 이전되어 이 cron은 Node 1에서 **비활성화**됨.
+> Node 3에서 Fullnode 메모리 leak 대응이 필요한 경우 동일 패턴으로 설정 가능.
 
 SUI Fullnode의 메모리 leak 대응을 위해 6시간마다 자동 재시작.
 
@@ -481,7 +539,10 @@ cat ~/fullnode-restart.log
 | 합의 영향 | 없음 (Fullnode는 합의 미참여) |
 | 메모리 해제 효과 | RSS 7-8GB → ~800MB |
 
-### 4.9 Fullnode DB 재동기화 자동화 (2026-02-17 추가)
+### 4.9 Fullnode DB 재동기화 자동화 (2026-02-17 추가, Node 1 비활성화)
+
+> **2026-02-21**: Node 1의 Fullnode가 Node 3으로 이전되어 이 cron은 Node 1에서 **비활성화**됨.
+> Node 3에서 디스크 관리가 필요한 경우 동일 패턴으로 설정 가능 (300GB EBS이므로 당분간 불필요).
 
 Fullnode DB가 ~3.2GB/일 증가하여 디스크 임계값을 초과하는 것을 방지하기 위한
 자동 재동기화 시스템. Fullnode DB를 삭제하고 genesis부터 재구축하여 디스크를 회수합니다.
@@ -1224,11 +1285,11 @@ V7에서 확립된 15개 컨트랙트 배포 방법론입니다.
 
 향후 리셋(V8+) 시 비용 절감을 위해 ARM 아키텍처로 전환 검토.
 
-> **V7 상황**: V7은 Node 1을 t3.large → t3.xlarge로 업그레이드하여 메모리 문제를 해결했으나,
-> ARM 전환은 수행하지 않았습니다 (t3a가 ap-northeast-2b AZ에서 미지원, Graviton은 별도 인스턴스 생성 필요).
+> **V7 3-node 마이그레이션 (2026-02-21)**: m6i 인스턴스로 전환 완료.
+> 향후 리셋 시 m6g (Graviton) 전환으로 추가 비용 절감 가능.
 
 **전환 이유**:
-- Graviton (c7g.xlarge)은 x86 (현재 t3.xlarge) 대비 성능/비용 우위
+- Graviton (m7g)은 x86 (현재 m6i) 대비 성능/비용 우위
 - Sui는 ARM (aarch64) 공식 지원
 - 월 비용 절감 가능
 
@@ -1245,8 +1306,8 @@ V7에서 확립된 15개 컨트랙트 배포 방법론입니다.
 - EC2, Fargate, Lambda 모두 적용
 - 인스턴스 수가 아닌 시간당 사용액($) 기준 약정
 
-> **현재 상태**: V7에서 Node 1이 t3.xlarge (16GB)로 변경되어 인스턴스 구성이 안정화됨.
-> ARM 전환 여부를 결정한 후 Savings Plan 구매 권장.
+> **현재 상태**: V7 3-node m6i 아키텍처로 안정화됨. 월 ~$332 (on-demand).
+> 1년 Compute Savings Plan 적용 시 ~$241/월로 절감 가능.
 
 ### 9.3 Faucet 설정
 
@@ -1261,6 +1322,121 @@ ExecStart=/home/ubuntu/sui-faucet --host-ip 0.0.0.0 --port 5003 --amount 2000000
 | 버전 | 설정 | 결과 |
 |------|------|------|
 | V7 (현재) | `--amount 20000000000` | 100 NSN (20×5) |
+
+---
+
+## 10. Indexer Infrastructure (Node 3)
+
+### 10.1 개요
+
+Node 3 (54.180.61.196, m6i.xlarge)에서 sui-indexer + PostgreSQL 16 + Explorer API를 운영합니다.
+이 인프라는 Network Explorer뿐 아니라 **모든 Nasun 프로젝트의 공유 데이터 소스**입니다.
+
+> **2026-02-21**: Node 2에서 Node 3으로 이전. Fullnode과 같은 노드에서 운영하여
+> `data-ingestion-dir` 로컬 파일 모드 사용 (기존 remote REST mode 대비 안정적).
+
+### 10.2 서비스 구성
+
+| 서비스 | 관리 방식 | OOM Score | 설명 |
+|--------|----------|-----------|------|
+| `nasun-fullnode` | systemd | -500 (보호) | Fullnode RPC + data-ingestion 파일 생성 |
+| `postgresql` | systemd | - | PostgreSQL 16, DB: `sui_indexer` |
+| `sui-indexer` | systemd | 500 (우선 kill) | data-ingestion 로컬 파일 → PostgreSQL |
+| `explorer-api` | PM2 | - | Hono REST API, port 3200 |
+
+### 10.3 sui-indexer
+
+```bash
+# Node 3에서 실행
+ssh ubuntu@54.180.61.196
+
+# 상태 확인
+sudo systemctl status sui-indexer
+
+# 로그 확인
+sudo journalctl -u sui-indexer -f --no-pager
+
+# 재시작
+sudo systemctl restart sui-indexer
+```
+
+- **ingestion 모드**: local file (`--data-ingestion-path /home/ubuntu/nasun-node/data-ingestion`)
+- **Metrics**: port 9185 (Fullnode이 9184 사용)
+- **Config**: `/etc/systemd/system/sui-indexer.service`
+- **CPU 제한**: `CPUQuota=50%`, **메모리 제한**: `MemoryMax=800M`
+- **data-ingestion 자동 정리**: `--gc-checkpoint-files` (기본 true, 처리 완료 파일 자동 삭제)
+
+### 10.4 PostgreSQL
+
+```bash
+# Node 3에서 실행
+ssh ubuntu@54.180.61.196
+
+# DB 크기 확인
+sudo -u postgres psql -d sui_indexer -c "SELECT pg_size_pretty(pg_database_size('sui_indexer'));"
+
+# 주요 테이블 행 수 확인
+sudo -u postgres psql -d sui_indexer -c "SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT 10;"
+
+# 최신 인덱싱된 체크포인트
+PGPASSWORD=indexer_ec2_2026 psql -U sui_indexer -d sui_indexer -c "SELECT MAX(sequence_number) FROM checkpoints;"
+```
+
+- **설정**: `shared_buffers=4GB`, `effective_cache_size=12GB`, `work_mem=64MB`, `max_connections=20`
+
+### 10.5 Explorer API (PM2)
+
+```bash
+# Node 3에서 실행
+ssh ubuntu@54.180.61.196
+
+# 상태 확인
+pm2 status explorer-api
+
+# 재시작 (환경변수 로드 필수)
+set -a && source ~/explorer-api/.env && set +a
+pm2 restart explorer-api --update-env
+
+# 헬스체크
+curl http://localhost:3200/api/v1/health
+```
+
+- **코드**: `~/explorer-api/` (rsync from `nasun-monorepo/apps/network-explorer/api-server/`)
+- **Security Group**: Port 3200 → Production EC2 (43.200.67.52/32) 전용
+
+### 10.6 Devnet 리셋 시 인덱서 재초기화
+
+```bash
+# Node 3에서 실행
+ssh ubuntu@54.180.61.196
+
+# 1. 인덱서 중지
+sudo systemctl stop sui-indexer
+
+# 2. DB 초기화
+sudo -u postgres psql -c "DROP DATABASE sui_indexer;"
+sudo -u postgres psql -c "CREATE DATABASE sui_indexer OWNER sui_indexer;"
+
+# 3. 인덱서 재시작
+sudo systemctl start sui-indexer
+
+# 4. API 서버 재시작
+set -a && source ~/explorer-api/.env && set +a
+pm2 restart explorer-api --update-env
+
+# 5. 헬스체크
+curl http://localhost:3200/api/v1/health
+```
+
+### 10.7 트러블슈팅
+
+| 증상 | 원인 | 해결 |
+|------|------|------|
+| API `/health` 503 | PostgreSQL 다운 또는 인덱서 미동작 | `systemctl status postgresql sui-indexer` 확인 |
+| 인덱싱 진행 안 됨 | data-ingestion 파일 미생성 | Fullnode `checkpoint-executor-config.data-ingestion-dir` 확인 |
+| data-ingestion 파일 쌓임 | indexer가 중단됨 | `systemctl restart sui-indexer`, 파일 수 확인 |
+| PM2 explorer-api 실패 | DATABASE_URL 미설정 | `set -a && source .env && set +a` 후 재시작 |
+| metrics port 충돌 | Fullnode (9184) vs indexer | indexer는 9185 사용 확인 |
 
 ---
 
@@ -1280,3 +1456,5 @@ ExecStart=/home/ubuntu/sui-faucet --host-ip 0.0.0.0 --port 5003 --amount 2000000
 | 5.1.0 | 2026-02-04 | V7 배포 방법론 문서화 (Section 8.7), `test-publish --pubfile-path` 패턴, 3-tier 배포 순서, post-deploy 공유 객체 생성 절차, devnet-ids.json V7 구조 반영 | Claude Code |
 | 5.2.0 | 2026-02-09 | **V7 운영 안정화 조치 문서화**: Fullnode 메모리 leak 대응 (스왑 4GB 확장, 6시간 자동 재시작 cron), DB pruning 작동 확인 (epoch 50+), 문제 해결 사례 5.11 추가, 모니터링 4.8 추가, Faucet 설정 수정 | Claude Code |
 | 5.3.0 | 2026-02-17 | **Fullnode DB 재동기화 자동화**: EBS 200GB 확장 (양 노드), fullnode-resync.sh (PID lock, 24h 쿨다운, SNS 알림), resync-trigger.sh (80% 임계값), checkpoint-monitor/fullnode-restart에 lock 연동, Section 4.9 추가 | Claude Code |
+| 6.0.0 | 2026-02-20 | **Indexer Infrastructure (Node 2)**: sui-indexer + PostgreSQL 16 + Explorer API (Hono/PM2) 구축. Node 2 역할 업데이트, Section 10 추가, 서비스 배치 테이블 업데이트 | Claude Code |
+| 7.0.0 | 2026-02-21 | **3-Node m6i 마이그레이션**: t3→m6i 전환, 역할 분리 (Node 1: Validator+Faucet, Node 2: Validator+Prover, Node 3: Fullnode+Indexer+Explorer). DNS 전환 (rpc→node-3), zkprover node-2 이전, Indexer Section 10 Node 3으로 업데이트 | Claude Code |
