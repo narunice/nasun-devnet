@@ -2,7 +2,7 @@
 
 **Version**: 7.0.0
 **Created**: 2025-12-23
-**Updated**: 2026-02-21
+**Updated**: 2026-03-01
 **Author**: Claude Code
 **Status**: 운영 중 (V7, 3-Node m6i)
 
@@ -78,7 +78,7 @@
 |------|-----|------|--------------|-------------|------|
 | nasun-node-1 | 3.38.127.23 | **Validator + Faucet + Nginx** | **m6i.large (8GB)** | i-040cc444762741157 | ✅ 운영 중 |
 | nasun-node-2 | 3.38.76.85 | **Validator + zkLogin Prover (Docker)** | **m6i.large (8GB)** | i-049571787762752ba | ✅ 운영 중 |
-| nasun-node-3 | 54.180.61.196 | **Fullnode (RPC) + sui-indexer + PostgreSQL + Explorer API + Nginx** | **m6i.xlarge (16GB)** | i-0c3b43a7d96de2f09 | ✅ 운영 중 |
+| nasun-node-3 | 54.180.61.196 | **Fullnode (RPC) + sui-indexer + PostgreSQL + Explorer API + Nginx** | **m6i.2xlarge (32GB)** | i-0100cd81438c776a5 | ✅ 운영 중 |
 
 > **3-Node 마이그레이션 (2026-02-21)**: t3 Burstable 과부하 해결을 위해 m6i dedicated 인스턴스로 전환.
 > 역할 분리: Validator 전용 (node-1,2) + Fullnode/Indexer 전용 (node-3).
@@ -236,6 +236,7 @@ WantedBy=multi-user.target
 [Unit]
 Description=Nasun Fullnode (RPC)
 After=network.target
+OnFailure=notify-failure@%N.service
 
 [Service]
 Type=simple
@@ -245,6 +246,9 @@ ExecStart=/home/ubuntu/nasun-node/sui-node --config-path /home/ubuntu/nasun-node
 Restart=always
 RestartSec=10
 OOMScoreAdjust=-500
+OOMPolicy=stop
+MemoryHigh=20G
+MemoryMax=24G
 
 [Install]
 WantedBy=multi-user.target
@@ -256,19 +260,24 @@ WantedBy=multi-user.target
 Description=Sui Indexer for Nasun Devnet
 After=postgresql.service nasun-fullnode.service
 Requires=postgresql.service
+OnFailure=notify-failure@%N.service
+StartLimitIntervalSec=600
+StartLimitBurst=10
 
 [Service]
+Environment="RUST_LOG=warn"
 Type=simple
 User=ubuntu
-ExecStart=/home/ubuntu/nasun-node/sui-indexer \
-  --database-url postgres://sui_indexer:indexer_ec2_2026@localhost:5432/sui_indexer \
-  --pool-size 5 --metrics-address 0.0.0.0:9185 \
-  indexer --data-ingestion-path /home/ubuntu/nasun-node/data-ingestion \
-  --checkpoint-download-queue-size 10
+ExecStartPre=/usr/bin/pg_isready -U sui_indexer -d sui_indexer -h localhost -t 30
+ExecStart=/home/ubuntu/nasun-node/start-indexer.sh
 Restart=on-failure
-RestartSec=10
-MemoryMax=800M
-CPUQuota=50%
+RestartSec=15
+RestartSteps=5
+RestartMaxDelaySec=300
+OOMPolicy=stop
+MemoryHigh=3G
+MemoryMax=4G
+CPUQuota=100%
 OOMScoreAdjust=500
 
 [Install]
@@ -407,12 +416,16 @@ aws sns publish --topic-arn arn:aws:sns:ap-northeast-2:150674276464:nasun-devnet
 - EC2 Auto Recovery (인스턴스 상태 체크 실패)
 - 디스크 사용량 70% NOTICE / 80% WARNING / 90% CRITICAL (2026-02-03 단계별 강화)
 - 체크포인트 5분 이상 멈춤 (합의 장애)
+- sui-indexer 장애 감지 및 자동 복구 결과 (2026-02-27 watchdog 추가)
+- .chk 파일 10K+ 누적 경고 (2026-02-27 추가)
+- Indexer lag 500+ WARNING / 5000+ CRITICAL (2026-02-27 추가)
+- PostgreSQL DB 크기 100GB WARNING / 150GB CRITICAL (2026-02-26 추가)
 
 ### 4.7 체크포인트 모니터링 및 자동 복구 (2026-01-01 추가, 2026-02-17 수정)
 
 양 노드에 `/home/ubuntu/checkpoint-monitor.sh` 스크립트 설치:
 
-> **2026-02-17 수정**: Fullnode DB 재동기화(Section 4.9) 진행 중에는 RPC가 정상적으로 내려가므로,
+> **2026-02-17 수정**: Fullnode DB 재동기화(Section 4.10) 진행 중에는 RPC가 정상적으로 내려가므로,
 > resync lock 파일 체크를 추가하여 불필요한 validator 재시작을 방지합니다.
 
 **Node 1/2 버전** (validator 재시작, Node 1 RPC 모니터링, SNS 알림):
@@ -476,11 +489,11 @@ fi
 ### 4.8 Fullnode 자동 재시작 (2026-02-08 추가, 2026-02-17 수정, Node 1 비활성화)
 
 > **2026-02-21**: Node 1의 Fullnode가 Node 3으로 이전되어 이 cron은 Node 1에서 **비활성화**됨.
-> Node 3에서 Fullnode 메모리 leak 대응이 필요한 경우 동일 패턴으로 설정 가능.
+> **2026-02-27**: Node 3에서 설정 완료. **2026-03-01**: 8시간 주기로 변경 (`0 */8 * * *`), RSS 임계값 16GB, m6i.2xlarge 업그레이드 반영.
 
-SUI Fullnode의 메모리 leak 대응을 위해 6시간마다 자동 재시작.
+SUI Fullnode의 메모리 leak 대응을 위해 8시간마다 자동 재시작.
 
-> **2026-02-17 수정**: Fullnode DB 재동기화(Section 4.9) 진행 중에는 재시작을 스킵하도록
+> **2026-02-17 수정**: Fullnode DB 재동기화(Section 4.10) 진행 중에는 재시작을 스킵하도록
 > resync lock 파일 체크를 추가했습니다.
 
 **스크립트**: `/home/ubuntu/fullnode-restart.sh` (Node 1)
@@ -522,9 +535,9 @@ STATUS=$(systemctl is-active nasun-fullnode)
 echo "[$TIMESTAMP] Restart complete. RAM: ${MEM_AFTER}MB, Swap: ${SWAP_AFTER}MB, Status: $STATUS" >> $LOG_FILE
 ```
 
-**Cron 설정** (6시간마다, 00/06/12/18 UTC):
+**Cron 설정** (8시간마다, 00/08/16 UTC):
 ```
-0 0,6,12,18 * * * /home/ubuntu/fullnode-restart.sh
+0 0,8,16 * * * /home/ubuntu/fullnode-restart.sh
 ```
 
 **로그 확인**:
@@ -534,12 +547,66 @@ cat ~/fullnode-restart.log
 
 | 항목 | 값 |
 |------|-----|
-| 재시작 간격 | 6시간 (00:00, 06:00, 12:00, 18:00 UTC) |
+| 재시작 간격 | 8시간 (00:00, 08:00, 16:00 UTC) |
 | RPC 중단 | ~60-90초 |
 | 합의 영향 | 없음 (Fullnode는 합의 미참여) |
 | 메모리 해제 효과 | RSS 7-8GB → ~800MB |
 
-### 4.9 Fullnode DB 재동기화 자동화 (2026-02-17 추가, Node 1 비활성화)
+### 4.9 sui-indexer 연쇄 장애 방지 시스템 (2026-02-27 추가, Node 3)
+
+2026-02-26에 발생한 연쇄 장애(Fullnode memory leak → indexer OOM → StartLimitBurst 소진 → .chk 306K 누적 → glob ARG_MAX 실패)의 재발을 방지하는 4-Layer 방어 체계.
+
+**Layer 1: systemd Service Hardening**
+
+nasun-fullnode.service에 메모리 제한 추가:
+- `MemoryHigh=11G` (소프트 제한, throttle)
+- `MemoryMax=13G` (하드 제한, kill + 자동 restart)
+
+sui-indexer.service 강화:
+- `ExecStartPre=pg_isready` (PostgreSQL 미기동 시 restart 횟수 낭비 방지)
+- `MemoryHigh=2500M` (소프트 제한), `MemoryMax=3G` (하드 제한)
+- `StartLimitBurst=10`, `StartLimitIntervalSec=600` (10분간 10회까지 허용)
+
+**Layer 2: .chk File Accumulation Prevention**
+
+스크립트: `/home/ubuntu/chk-cleanup.sh` (10분마다 cron)
+- .chk 파일 10K+ 시 SNS 알림
+- .chk 파일 50K+ + indexer 미실행 시 → 최신 1000개 보존, 나머지 삭제
+- indexer 실행 중이면 내장 GC에 위임 (충돌 방지)
+
+**Layer 3: Indexer Auto-Recovery Watchdog**
+
+스크립트: `/home/ubuntu/indexer-watchdog.sh` (2분마다 cron)
+- sui-indexer inactive/failed 감지 → `systemctl reset-failed` + `systemctl start`
+- 사전 확인: PostgreSQL 상태, Fullnode 상태, 디스크 95% 미만
+- 시간당 최대 3회 복구 시도 (무한 루프 방지)
+- 3회 초과 시 CRITICAL SNS 알림
+
+**Layer 4: Monitoring**
+
+스크립트: `/home/ubuntu/indexer-lag-monitor.sh` (5분마다 cron)
+- Fullnode RPC vs PostgreSQL 체크포인트 비교
+- lag 500+ (증가 추세) → WARNING, lag 5000+ → CRITICAL
+- disk-monitor.sh에 .chk 파일 수, indexer 상태, Fullnode RSS 정보 추가
+
+**Cron 구성 (Node 3)**:
+```
+*/2 * * * * /home/ubuntu/indexer-watchdog.sh
+*/10 * * * * /home/ubuntu/chk-cleanup.sh
+*/5 * * * * /home/ubuntu/indexer-lag-monitor.sh
+```
+
+**장애 시나리오 커버리지**:
+
+| 시나리오 | 방어 |
+|----------|------|
+| Fullnode leak → OOM | MemoryHigh 11G throttle + 6h restart cron |
+| Indexer OOM kill | MemoryHigh 2.5G throttle + MemoryMax 3G |
+| StartLimitBurst 소진 | watchdog가 reset-failed + restart (2분 내) |
+| .chk 30만개 누적 | chk-cleanup이 50K+ 시 자동 정리 |
+| PG 다운 → indexer 실패 | ExecStartPre pg_isready + watchdog PG restart |
+
+### 4.10 Fullnode DB 재동기화 자동화 (2026-02-17 추가, Node 1 비활성화)
 
 > **2026-02-21**: Node 1의 Fullnode가 Node 3으로 이전되어 이 cron은 Node 1에서 **비활성화**됨.
 > Node 3에서 디스크 관리가 필요한 경우 동일 패턴으로 설정 가능 (300GB EBS이므로 당분간 불필요).
@@ -1455,6 +1522,7 @@ curl http://localhost:3200/api/v1/health
 | 5.0.0 | 2026-02-04 | **V7 리셋** (Chain ID: 272218f1), Node 1 t3.xlarge(16GB) 업그레이드, 15개 컨트랙트 3-tier 배포, 디스크 100% 인시던트(EBS 100GB 확장) | Claude Code |
 | 5.1.0 | 2026-02-04 | V7 배포 방법론 문서화 (Section 8.7), `test-publish --pubfile-path` 패턴, 3-tier 배포 순서, post-deploy 공유 객체 생성 절차, devnet-ids.json V7 구조 반영 | Claude Code |
 | 5.2.0 | 2026-02-09 | **V7 운영 안정화 조치 문서화**: Fullnode 메모리 leak 대응 (스왑 4GB 확장, 6시간 자동 재시작 cron), DB pruning 작동 확인 (epoch 50+), 문제 해결 사례 5.11 추가, 모니터링 4.8 추가, Faucet 설정 수정 | Claude Code |
-| 5.3.0 | 2026-02-17 | **Fullnode DB 재동기화 자동화**: EBS 200GB 확장 (양 노드), fullnode-resync.sh (PID lock, 24h 쿨다운, SNS 알림), resync-trigger.sh (80% 임계값), checkpoint-monitor/fullnode-restart에 lock 연동, Section 4.9 추가 | Claude Code |
+| 5.3.0 | 2026-02-17 | **Fullnode DB 재동기화 자동화**: EBS 200GB 확장 (양 노드), fullnode-resync.sh (PID lock, 24h 쿨다운, SNS 알림), resync-trigger.sh (80% 임계값), checkpoint-monitor/fullnode-restart에 lock 연동, Section 4.10 추가 | Claude Code |
 | 6.0.0 | 2026-02-20 | **Indexer Infrastructure (Node 2)**: sui-indexer + PostgreSQL 16 + Explorer API (Hono/PM2) 구축. Node 2 역할 업데이트, Section 10 추가, 서비스 배치 테이블 업데이트 | Claude Code |
 | 7.0.0 | 2026-02-21 | **3-Node m6i 마이그레이션**: t3→m6i 전환, 역할 분리 (Node 1: Validator+Faucet, Node 2: Validator+Prover, Node 3: Fullnode+Indexer+Explorer). DNS 전환 (rpc→node-3), zkprover node-2 이전, Indexer Section 10 Node 3으로 업데이트 | Claude Code |
+| 7.1.0 | 2026-02-27 | **sui-indexer 연쇄 장애 방지 시스템**: 4-Layer 방어 체계 (systemd MemoryHigh/Max, .chk cleanup, indexer watchdog, lag monitor). Section 4.9 추가, 기존 4.9→4.10 번호 조정 | Claude Code |

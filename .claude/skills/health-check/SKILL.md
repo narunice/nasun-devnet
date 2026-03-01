@@ -18,7 +18,7 @@ Nasun Devnet 3-node 인프라의 헬스를 체크합니다.
 |------|-----|------|---------|
 | node-1 | 3.38.127.23 | Validator + Faucet + Nginx | m6i.large (8GB) |
 | node-2 | 3.38.76.85 | Validator + zkLogin Prover (Docker) | m6i.large (8GB) |
-| node-3 | 54.180.61.196 | Fullnode (RPC) + sui-indexer + PostgreSQL + Explorer API + Nginx | m6i.xlarge (16GB) |
+| node-3 | 54.180.61.196 | Fullnode (RPC) + sui-indexer + PostgreSQL + Explorer API + Nginx | m6i.2xlarge (32GB) |
 
 ## SSH 접속 공통
 
@@ -263,8 +263,8 @@ HEALTH_EOF
 
 | ID | 패턴 | 감지 조건 | 심각도 | 권장 조치 |
 |----|------|-----------|--------|-----------|
-| F1 | Fullnode memory leak | RSS > 8GB (WARNING), > 12GB (CRITICAL) | W/C | Fullnode 재시작 (`sudo systemctl restart nasun-fullnode`). 6시간 cron이 자동 관리하지만, 12GB 초과 시 즉시 개입 필요 |
-| F2 | Indexer OOM 위험 | RSS > 2GB 또는 cgroup high event 급증 | W | Indexer 재시작. MemoryMax=3G에서 OOM kill 발생하면 watchdog가 자동 복구 |
+| F1 | Fullnode memory leak | RSS > 12GB (WARNING), > 16GB (CRITICAL) | W/C | Fullnode 재시작 (`sudo systemctl restart nasun-fullnode`). 8시간 cron이 자동 관리하지만, 16GB 초과 시 즉시 개입 필요. node-3는 m6i.2xlarge (32GB)이므로 여유 있음 |
+| F2 | Indexer OOM 위험 | RSS > 2GB (WARNING), > 3GB (CRITICAL) 또는 cgroup high event 급증 | W/C | Indexer 재시작. MemoryHigh=3G, MemoryMax=4G에서 OOM kill 발생하면 watchdog가 자동 복구 |
 | F3 | .chk 파일 누적 | > 10K (WARNING), > 50K (CRITICAL) | W/C | Indexer가 정상이면 자동 GC 대기. 50K+ 이면 `chk-cleanup.sh` 수동 실행 또는 indexer 상태 확인 |
 | F4 | Indexer lag | > 500 (WARNING, growing), > 5000 (CRITICAL) | W/C | Indexer 로그 확인. DB 문제 또는 OOM 반복일 가능성. 심하면 DB reinit 필요 |
 | F5 | Swap thrashing | swap used > 70% (WARNING), > 90% (CRITICAL) | W/C | Fullnode RSS 확인 후 재시작. Swap 90%+ 에서는 시스템 전체 성능 저하 |
@@ -326,8 +326,8 @@ All systems operational. No issues detected.
 
 | 메트릭 | 정상 | WARNING | CRITICAL |
 |--------|------|---------|----------|
-| Fullnode RSS | < 6GB | 8GB+ | 12GB+ |
-| Indexer RSS | < 1GB | 2GB+ | 2.8GB+ |
+| Fullnode RSS | < 8GB | 12GB+ | 16GB+ |
+| Indexer RSS | < 1GB | 2GB+ | 3GB+ |
 | Indexer lag | < 100 | 500+ | 5000+ |
 | .chk files | < 5K | 10K+ | 50K+ |
 | Disk usage | < 70% | 80%+ | 90%+ |

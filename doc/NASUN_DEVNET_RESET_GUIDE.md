@@ -1,7 +1,7 @@
 # Nasun Devnet Network Reset Guide
 
-**Version**: 5.1
-**Last Updated**: 2026-02-04
+**Version**: 7.1
+**Last Updated**: 2026-03-01
 **Current Network**: V7 (Chain ID: `272218f1`)
 
 ---
@@ -26,14 +26,15 @@ This guide documents the network reset procedure for Nasun Devnet. A reset is re
 | **DB Pruning** | 50 epochs (~4 days) |
 | **zkLogin** | Supported (prover-dev compatible) |
 
-### Node Architecture (2-Node)
+### Node Architecture (3-Node m6i)
 
 | Node | IP | Role | Instance |
 |------|-----|------|----------|
-| Node 1 | 3.38.127.23 | Validator + Fullnode + Faucet + nginx | t3.xlarge (16GB) |
-| Node 2 | 3.38.76.85 | Validator | t3.large (8GB) |
+| Node 1 | 3.38.127.23 | Validator + Faucet + Nginx | m6i.large (8GB) |
+| Node 2 | 3.38.76.85 | Validator + zkLogin Prover | m6i.large (8GB) |
+| Node 3 | 54.180.61.196 | Fullnode + Indexer + PostgreSQL + Explorer API + Nginx | m6i.2xlarge (32GB) |
 
-> **Note**: V7 upgraded Node 1 to t3.xlarge (16GB) for memory headroom
+> **Note**: 2026-02-21 migrated to 3-node m6i architecture. 2026-03-01 upgraded Node 3 to m6i.2xlarge (32GB).
 
 ---
 
@@ -609,5 +610,5 @@ grep keystore ~/.sui/sui_config/client.yaml
 
 ---
 
-**Document Version**: 5.1
-**Last Updated**: 2026-02-04
+**Document Version**: 7.1
+**Last Updated**: 2026-03-01
