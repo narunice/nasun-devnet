@@ -35,6 +35,11 @@ This guide documents the network reset procedure for Nasun Devnet. A reset is re
 | Node 3 | 54.180.61.196 | Fullnode + Indexer + PostgreSQL + Explorer API + Nginx | m6i.2xlarge (32GB) |
 
 > **Note**: 2026-02-21 migrated to 3-node m6i architecture. 2026-03-01 upgraded Node 3 to m6i.2xlarge (32GB).
+>
+> **SUI Fork Custom Patches**: sui-indexer에 epoch boundary crash 방지 패치 적용 (2026-03-03).
+> Upstream Sui merge 시 `crates/sui-indexer/src/store/pg_indexer_store.rs`와
+> `crates/sui-indexer/src/handlers/checkpoint_handler.rs`의 Nasun patch 주석을 확인하여 패치가 유지되는지 검증 필요.
+> 상세: NASUN_DEVNET_OPERATIONS.md Section 4.9 Layer 5 참조.
 
 ---
 

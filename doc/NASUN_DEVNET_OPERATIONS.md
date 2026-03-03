@@ -596,15 +596,42 @@ sui-indexer.service 강화:
 */5 * * * * /home/ubuntu/indexer-lag-monitor.sh
 ```
 
+**Layer 5: Epoch Boundary Crash Prevention (2026-03-03 코드 패치)**
+
+SUI fork 코드 수정으로 DB reinit 후 epoch boundary crash-loop 근본 해결:
+- **원인**: DB reinit 후 epoch N-2의 체크포인트가 DB에 없어 `get_network_total_transactions_by_end_of_epoch()` 실패 → panic → 매 2시간 반복
+- **수정 파일** (검색 키워드: `Nasun patch`):
+  - `crates/sui-indexer/src/store/pg_indexer_store.rs`: `.first()` → `.optional()` (missing record를 None으로 반환)
+  - `crates/sui-indexer/src/handlers/checkpoint_handler.rs`: `None` 시 fallback 0 + warn 로그 (panic 대신)
+  - `crates/sui-indexer/src/handlers/committer.rs`: `chain_identifier` 미존재 시 protocol config 업데이트 건너뜀 (panic 대신)
+- **부작용**: DB reinit 직후 첫 epoch의 `epoch_total_transactions`가 부정확 (누적값으로 기록). 이후 epoch부터 정상
+- **DB 수동 복구**: DB reinit 후 `chain_identifier` 테이블이 비면 genesis digest를 수동 삽입 필요 (SUI digest는 Base58):
+  ```bash
+  DIGEST=$(curl -s http://localhost:9000 -X POST -H "Content-Type: application/json" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"sui_getCheckpoint","params":["0"]}' | \
+    python3 -c "import sys,json; print(json.load(sys.stdin)['result']['digest'])")
+  HEX=$(python3 -c "
+  ALPHABET='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+  def b58decode(s):
+      n=0
+      for c in s: n=n*58+ALPHABET.index(c)
+      return n.to_bytes(32,'big')
+  print(b58decode('$DIGEST').hex())")
+  PGPASSWORD=indexer_ec2_2026 psql -U sui_indexer -d sui_indexer -h localhost -c \
+    "INSERT INTO chain_identifier (checkpoint_digest) VALUES (decode('$HEX','hex')) ON CONFLICT DO NOTHING;"
+  ```
+- **upstream merge 주의**: 이 패치는 Nasun 고유이므로 upstream Sui merge 시 덮어씌워질 수 있음
+
 **장애 시나리오 커버리지**:
 
 | 시나리오 | 방어 |
 |----------|------|
-| Fullnode leak → OOM | MemoryHigh 11G throttle + 6h restart cron |
-| Indexer OOM kill | MemoryHigh 2.5G throttle + MemoryMax 3G |
+| Fullnode leak → OOM | MemoryHigh 20G throttle + 8h restart cron |
+| Indexer OOM kill | MemoryHigh 3G throttle + MemoryMax 4G |
 | StartLimitBurst 소진 | watchdog가 reset-failed + restart (2분 내) |
 | .chk 30만개 누적 | chk-cleanup이 50K+ 시 자동 정리 |
 | PG 다운 → indexer 실패 | ExecStartPre pg_isready + watchdog PG restart |
+| Epoch boundary crash (DB reinit 후) | 코드 패치로 fallback 처리 (Layer 5) |
 
 ### 4.10 Fullnode DB 재동기화 자동화 (2026-02-17 추가, Node 1 비활성화)
 
@@ -1526,3 +1553,4 @@ curl http://localhost:3200/api/v1/health
 | 6.0.0 | 2026-02-20 | **Indexer Infrastructure (Node 2)**: sui-indexer + PostgreSQL 16 + Explorer API (Hono/PM2) 구축. Node 2 역할 업데이트, Section 10 추가, 서비스 배치 테이블 업데이트 | Claude Code |
 | 7.0.0 | 2026-02-21 | **3-Node m6i 마이그레이션**: t3→m6i 전환, 역할 분리 (Node 1: Validator+Faucet, Node 2: Validator+Prover, Node 3: Fullnode+Indexer+Explorer). DNS 전환 (rpc→node-3), zkprover node-2 이전, Indexer Section 10 Node 3으로 업데이트 | Claude Code |
 | 7.1.0 | 2026-02-27 | **sui-indexer 연쇄 장애 방지 시스템**: 4-Layer 방어 체계 (systemd MemoryHigh/Max, .chk cleanup, indexer watchdog, lag monitor). Section 4.9 추가, 기존 4.9→4.10 번호 조정 | Claude Code |
+| 7.2.0 | 2026-03-03 | **sui-indexer epoch boundary crash fix**: SUI fork 코드 패치 (pg_indexer_store.rs `.optional()`, checkpoint_handler.rs fallback 0). DB reinit 후 매 2시간 crash-loop 근본 해결. Section 4.9 Layer 5 추가, CLAUDE.md fork 파일 테이블 업데이트 | Claude Code |

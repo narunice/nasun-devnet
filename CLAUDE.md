@@ -207,6 +207,14 @@ When forking SUI, these files require Nasun branding changes:
 | `crates/sui-config/src/node.rs`           | Default path `~/.sui` → `~/.nasun`     |
 | `crates/sui/src/client_commands.rs`       | CLI output messages                    |
 | `crates/sui-json-rpc/src/lib.rs`          | RPC version info                       |
+| `crates/sui-indexer/src/store/pg_indexer_store.rs` | Epoch boundary crash fix (`.optional()` 패턴) |
+| `crates/sui-indexer/src/handlers/checkpoint_handler.rs` | Missing epoch data fallback (DB reinit 대응) |
+| `crates/sui-indexer/src/handlers/committer.rs` | Missing chain_identifier graceful handling |
+
+> **주의 (Upstream Merge)**: sui-indexer의 세 파일은 Nasun 고유 패치입니다.
+> upstream Sui를 merge할 때 이 파일들의 변경이 덮어씌워질 수 있으므로 반드시 확인하세요.
+> 패치 내용: DB reinit 후 (1) epoch N-2 데이터 없을 때 fallback 0 사용 (2) chain_identifier 없을 때
+> protocol config 업데이트를 건너뜀 (2026-03-03). 검색 키워드: `Nasun patch`
 
 ## Build Commands
 
@@ -597,10 +605,25 @@ sudo systemctl stop sui-indexer
 sudo -u postgres psql -c "DROP DATABASE sui_indexer;"
 sudo -u postgres psql -c "CREATE DATABASE sui_indexer OWNER sui_indexer;"
 
-# 3. 인덱서 재시작 (새 체크포인트부터 재인덱싱)
+# 3. chain_identifier 복구 (DB reinit 후 필수, SUI digest는 Base58 인코딩)
+DIGEST=$(curl -s http://localhost:9000 -X POST -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"sui_getCheckpoint","params":["0"]}' | \
+  python3 -c "import sys,json; print(json.load(sys.stdin)['result']['digest'])")
+HEX=$(python3 -c "
+ALPHABET='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+def b58decode(s):
+    n=0
+    for c in s: n=n*58+ALPHABET.index(c)
+    return n.to_bytes(32,'big')
+print(b58decode('$DIGEST').hex())
+")
+PGPASSWORD=indexer_ec2_2026 psql -U sui_indexer -d sui_indexer -h localhost -c \
+  "INSERT INTO chain_identifier (checkpoint_digest) VALUES (decode('$HEX','hex')) ON CONFLICT DO NOTHING;"
+
+# 4. 인덱서 재시작 (새 체크포인트부터 재인덱싱)
 sudo systemctl start sui-indexer
 
-# 4. API 서버 재시작
+# 5. API 서버 재시작
 set -a && source ~/explorer-api/.env && set +a
 pm2 restart explorer-api --update-env
 ```
