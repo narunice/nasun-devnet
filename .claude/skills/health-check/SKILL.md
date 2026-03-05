@@ -271,7 +271,8 @@ HEALTH_EOF
 | F6 | 디스크 부족 | > 80% (WARNING), > 90% (CRITICAL) | W/C | `du -sh` 로 큰 디렉토리 확인. 로그 정리, DB reinit, .chk 정리 고려 |
 | F7 | 합의 중단 | Validator 1개 이상 inactive | C | 즉시 해당 validator 재시작. 두 노드 모두 동일 genesis 확인 |
 | F8 | 서비스 restart 폭주 | NRestarts 높거나 Result=start-limit-hit | C | `systemctl reset-failed` 후 원인 분석. 보통 DB 연결 실패 또는 config 오류 |
-| F9 | Indexer crash-loop | panics 3+ in 1h (same epoch error) | C | Watchdog v2가 자동 DB reinit 실행. 미실행 시 watchdog 로그 확인. **참고**: 2026-03-03 코드 패치로 epoch boundary panic은 해소됨. F9가 여전히 발생하면 다른 원인 (DB corruption, schema mismatch 등) 조사 필요 |
+| F9 | Indexer crash-loop | panics 3+ in 1h (same epoch error) | C | Watchdog v2가 자동 DB reinit 실행. 미실행 시 watchdog 로그 확인. **참고**: 2026-03-03 코드 패치로 epoch boundary panic은 해소됨. F9가 여전히 발생하면 다른 원인 조사: (1) DB corruption (2) partition mismatch — pruning 활성화 시 mid-epoch 시작으로 epoch 파티션 불일치 crash. pruning은 사용 불가 |
+| F10 | DB 크기 과다 | DB > 20GB (WARNING), > 25GB (CRITICAL) | W/C | Pruning 비호환 (mid-epoch 시작 불가). DB reinit으로 정리 필요. reinit 후 chain_identifier 수동 삽입 필수 |
 
 ---
 
